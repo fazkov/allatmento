@@ -211,4 +211,4 @@ def render_admin_tab():
 
 def main():
     st.set_page_config(page_title="Intelligens Állatmentő Rendszer", page_icon="🐾", layout="centered")
-    if "demo_dogs" not in st.session_state:
+    st.session_state.setdefault("demo_dogs", list())
