@@ -30,49 +30,49 @@ def get_all_dogs():
     rows = cursor.fetchall()
     cursor.close()
     conn.close()
-    dogs = []
+    dogs = list()
     for d_id, name, size, energy, garden, kids, exp, s_name, s_contact, img in rows:
-        dogs.append({"id": d_id, "name": name, "size": size, "energy_level": energy, "needs_garden": garden, "kid_friendly": kids, "experience_required": exp, "shelter_name": s_name or "Nincs megadva", "shelter_contact": s_contact or "Nincs megadva", "image_data": img})
+        dogs.append(dict(id=d_id, name=name, size=size, energy_level=energy, needs_garden=garden, kid_friendly=kids, experience_required=exp, shelter_name=s_name or "Nincs megadva", shelter_contact=s_contact or "Nincs megadva", image_data=img))
     return dogs
 
 def calculate_match_score(dog, app_housing, app_work, app_garden, app_kids, app_exp):
-    if dog["needs_garden"] and not app_garden:
+    if dog.get("needs_garden") and not app_garden:
         return 0
-    if dog["experience_required"] and not app_exp:
+    if dog.get("experience_required") and not app_exp:
         return 0
-    if app_kids and not dog["kid_friendly"]:
+    if app_kids and not dog.get("kid_friendly"):
         return 0
     score = 3
-    if not (dog["energy_level"] >= 4 and app_work > 6 and app_housing == "Lakás"):
+    if not (dog.get("energy_level") >= 4 and app_work > 6 and app_housing == "Lakás"):
         score += 1
-    if not (dog["size"] == "Nagy (L)" and app_housing == "Lakás" and not app_garden):
+    if not (dog.get("size") == "Nagy (L)" and app_housing == "Lakás" and not app_garden):
         score += 1
     return int((score / 5) * 100)
 
 def render_dog_card(dog, score, is_demo=False):
     badge = "🥇 Tökéletes párosítás!" if score == 100 else "👍 Jó választás lehet"
     with st.container(border=True):
-        c_img, c_info = st.columns()
+        c_img, c_info = st.columns((1, 2))
         with c_img:
-            if dog["image_data"]:
-                st.image(base64.b64decode(dog["image_data"]), use_container_width=True)
+            if dog.get("image_data"):
+                st.image(base64.b64decode(dog.get("image_data")), use_container_width=True)
             else:
                 st.markdown("🐕\n*(Nincs fotó)*")
         with c_info:
-            st.subheader(f"{dog['name']} — {score}% ({badge})")
-            st.write(f"**Méret:** {dog['size']} | **Energiaszint:** {dog['energy_level']}/5")
-            st.write(f"**Kert igény:** {'Igen' if dog['needs_garden'] else 'Nem'} | **Gyerekbarát:** {'Igen' if dog['kid_friendly'] else 'Nem'} | **Tapasztalat:** {'Igen' if dog['experience_required'] else 'Nem'}")
+            st.subheader(f"{dog.get('name')} — {score}% ({badge})")
+            st.write(f"**Méret:** {dog.get('size')} | **Energiaszint:** {dog.get('energy_level')}/5")
+            st.write(f"**Kert igény:** {'Igen' if dog.get('needs_garden') else 'Nem'} | **Gyerekbarát:** {'Igen' if dog.get('kid_friendly') else 'Nem'} | **Tapasztalat:** {'Igen' if dog.get('experience_required') else 'Nem'}")
             if is_demo:
-                st.info(f"🏠 **Szervezet:** {dog['shelter_name']} | 📞 **Elérhetőség:** {dog['shelter_contact']}")
+                st.info(f"🏠 **Szervezet:** {dog.get('shelter_name')} | 📞 **Elérhetőség:** {dog.get('shelter_contact')}")
             else:
-                st.success(f"🏠 **Menhely / Szervezet:** {dog['shelter_name']}\n\n📞 **Elérhetőség:** {dog['shelter_contact']}")
+                st.success(f"🏠 **Menhely / Szervezet:** {dog.get('shelter_name')}\n\n📞 **Elérhetőség:** {dog.get('shelter_contact')}")
 
 def render_live_search():
     st.header("Találd meg a tökéletes társat!")
     col1, col2 = st.columns(2)
     with col1:
         app_name = st.text_input("Jelentkező neve", "Kovács Péter", key="live_name")
-        app_housing = st.selectbox("Lakóhely típusa", ["Lakás", "Kertes ház"], key="live_house")
+        app_housing = st.selectbox("Lakóhely típusa", ("Lakás", "Kertes ház"), key="live_house")
         app_work = st.slider("Napi távol töltött órák", 0, 12, 4, key="live_work")
     with col2:
         app_garden = st.checkbox("Van saját, biztonságos kertem", key="live_garden")
@@ -88,9 +88,12 @@ def render_live_search():
         return
 
     st.subheader(f"✨ Riport: {app_name} részére")
-    matches = [(calculate_match_score(d, app_housing, app_work, app_garden, app_kids, app_exp), d) for d in dogs]
-    matches = [m for m in matches if m >= 60]
-    matches.sort(key=lambda item: item, reverse=True)
+    matches = list()
+    for d in dogs:
+        s = calculate_match_score(d, app_housing, app_work, app_garden, app_kids, app_exp)
+        if s >= 60:
+            matches.append((s, d))
+    matches.sort(key=lambda item: item[0], reverse=True)
 
     if not matches:
         st.warning("⚠️ Sajnos jelenleg nincs olyan kutyánk, aki biztonsággal passzolna az élethelyzetedhez.")
@@ -111,9 +114,9 @@ def render_demo_tab():
                 d_shelter = st.text_input("Szervezet neve", "Teszt Menhely")
             with col_ds2:
                 d_contact = st.text_input("Elérhetőség", "+36 20 111 2222")
-            d_size = st.selectbox("Kutya mérete", ["Kicsi (S)", "Közepes (M)", "Nagy (L)"])
+            d_size = st.selectbox("Kutya mérete", ("Kicsi (S)", "Közepes (M)", "Nagy (L)"))
             d_energy = st.slider("Energiaszint", 1, 5, 3)
-            d_file = st.file_uploader("Tesztfotó feltöltése (opcionális)", type=["jpg", "jpeg", "png"])
+            d_file = st.file_uploader("Tesztfotó feltöltése (opcionális)", type=("jpg", "jpeg", "png"))
             d_garden = st.checkbox("Kizárólag kertes házba költözhet")
             d_kids = st.checkbox("Gyerekbarát")
             d_exp = st.checkbox("Tapasztalt gazdit igényel")
@@ -123,14 +126,14 @@ def render_demo_tab():
             st.error("Adjon meg egy nevet a tesztkutyának!")
         elif submitted_demo:
             d_img = base64.b64encode(d_file.read()).decode("utf-8") if d_file else None
-            st.session_state.demo_dogs.insert(0, {"name": d_name, "size": d_size, "energy_level": d_energy, "needs_garden": d_garden, "kid_friendly": d_kids, "experience_required": d_exp, "shelter_name": d_shelter, "shelter_contact": d_contact, "image_data": d_img})
+            st.session_state.demo_dogs.insert(0, dict(name=d_name, size=d_size, energy_level=d_energy, needs_garden=d_garden, kid_friendly=d_kids, experience_required=d_exp, shelter_name=d_shelter, shelter_contact=d_contact, image_data=d_img))
             st.success(f"🎉 **{d_name}** bekerült a demó listába!")
 
     st.divider()
     st.subheader("🔍 2. Lépés: Tesztelje a párosítást!")
     col_d1, col_d2 = st.columns(2)
     with col_d1:
-        demo_housing = st.selectbox("Teszt gazdi lakóhelye", ["Lakás", "Kertes ház"])
+        demo_housing = st.selectbox("Teszt gazdi lakóhelye", ("Lakás", "Kertes ház"))
         demo_work = st.slider("Napi távol töltött órák", 0, 12, 4)
     with col_d2:
         demo_garden = st.checkbox("Van saját kertje")
@@ -140,9 +143,12 @@ def render_demo_tab():
     if not st.button("🚀 Demó párosítás indítása", type="primary"):
         return
 
-    demo_matches = [(calculate_match_score(d, demo_housing, demo_work, demo_garden, demo_kids, demo_exp), d) for d in st.session_state.demo_dogs]
-    demo_matches = [m for m in demo_matches if m >= 60]
-    demo_matches.sort(key=lambda item: item, reverse=True)
+    demo_matches = list()
+    for d in st.session_state.demo_dogs:
+        s = calculate_match_score(d, demo_housing, demo_work, demo_garden, demo_kids, demo_exp)
+        if s >= 60:
+            demo_matches.append((s, d))
+    demo_matches.sort(key=lambda item: item[0], reverse=True)
 
     if not demo_matches:
         st.warning("A beállított élethelyzethez egyik demó kutya sem passzol.")
@@ -170,9 +176,9 @@ def render_admin_tab():
             shelter_name = st.text_input("Menhely neve", placeholder="Pl.: Érdi Állatvédők")
         with col_s2:
             shelter_contact = st.text_input("Elérhetőség", placeholder="Pl.: +36 30 123 4567")
-        dog_size = st.selectbox("Kutya mérete", ["Kicsi (S)", "Közepes (M)", "Nagy (L)"])
+        dog_size = st.selectbox("Kutya mérete", ("Kicsi (S)", "Közepes (M)", "Nagy (L)"))
         dog_energy = st.slider("Energiaszint", 1, 5, 3)
-        uploaded_file = st.file_uploader("Fotó feltöltése", type=["jpg", "jpeg", "png"])
+        uploaded_file = st.file_uploader("Fotó feltöltése", type=("jpg", "jpeg", "png"))
         dog_garden = st.checkbox("Kizárólag kertes házba költözhet")
         dog_kids = st.checkbox("Gyerekbarát")
         dog_exp = st.checkbox("Tapasztalt gazdit igényel")
@@ -188,16 +194,16 @@ def render_admin_tab():
     st.divider()
     current_dogs = get_all_dogs()
     for d in current_dogs:
-        c1, c2 = st.columns()
+        c1, c2 = st.columns((3, 1))
         with c1:
-            st.write(f"🐾 **{d['name']}** — *{d['shelter_name']}*")
+            st.write(f"🐾 **{d.get('name')}** — *{d.get('shelter_name')}*")
         with c2:
-            if st.button("🗑️ Törlés", key=f"del_{d['id']}"):
-                delete_dog(d['id'])
+            if st.button("🗑️ Törlés", key=f"del_{d.get('id')}"):
+                delete_dog(d.get('id'))
                 st.rerun()
 
 def main():
     st.set_page_config(page_title="Intelligens Állatmentő Rendszer", page_icon="🐾", layout="centered")
     if "demo_dogs" not in st.session_state:
-        st.session_state.demo_dogs = [
-            {"name": "Morzsi (Demó Minta)", "size": "Kicsi (S)", "energy_level": 2, "needs_garden": False, "kid_friendly": True, "experience_required": False, "shelter_name": "Minta Állatmenhely", "shelter_contact": "+36 30 000 0000", "image_data": None},
+        st.session_state.demo_dogs = list()
+        st.session_state.demo_dogs.append(dict(name="Morzsi (Demó Minta)", size="Kicsi (S)", energy_level=2, needs_garden=False, kid_friendly=True, experience_required=False, shelter_name="Minta Állatmenhely", shelter_contact="+36 30 000 0000", image_data=None))
