@@ -43,16 +43,16 @@ def get_all_dogs():
     dogs = []
     for row in rows:
         dogs.append({
-            "id": row[0],
-            "name": row[1],
-            "size": row[2],
-            "energy_level": row[3],
-            "needs_garden": row[4],
-            "kid_friendly": row[5],
-            "experience_required": row[6],
-            "shelter_name": row[7] if row[7] else "Nincs megadva",
-            "shelter_contact": row[8] if row[8] else "Nincs megadva",
-            "image_data": row[9]
+            "id": row,
+            "name": row,
+            "size": row,
+            "energy_level": row,
+            "needs_garden": row,
+            "kid_friendly": row,
+            "experience_required": row,
+            "shelter_name": row if row else "Nincs megadva",
+            "shelter_contact": row if row else "Nincs megadva",
+            "image_data": row
         })
     return dogs
 
@@ -89,31 +89,62 @@ def calculate_match_score(dog, app_housing, app_work, app_garden, app_kids, app_
 def main():
     st.set_page_config(page_title="Intelligens Állatmentő Rendszer", page_icon="🐾", layout="centered")
 
+    # Demó memóriatár inicializálása (csak az aktuális látogatónak él)
+    if "demo_dogs" not in st.session_state:
+        st.session_state.demo_dogs = [
+            {
+                "name": "Morzsi (Demó Minta)",
+                "size": "Kicsi (S)",
+                "energy_level": 2,
+                "needs_garden": False,
+                "kid_friendly": True,
+                "experience_required": False,
+                "shelter_name": "Minta Állatmenhely",
+                "shelter_contact": "+36 30 000 0000",
+                "image_data": None
+            },
+            {
+                "name": "Villám (Demó Minta)",
+                "size": "Nagy (L)",
+                "energy_level": 5,
+                "needs_garden": True,
+                "kid_friendly": False,
+                "experience_required": True,
+                "shelter_name": "Minta Állatmenhely",
+                "shelter_contact": "+36 30 000 0000",
+                "image_data": None
+            }
+        ]
+
     st.title("🐾 Intelligens Állatmentő & Párosító Rendszer")
     st.write("Nyugati mintára épült menhelyi menedzsment és gazdi-matching szoftver.")
 
-    tab1, tab2 = st.tabs(["📋 Gazdi Kereső (Matching)", "🔒 Menhelyi Nyilvántartás (Admin)"])
+    tab1, tab2, tab3 = st.tabs([
+        "📋 Gazdi Kereső (Éles)", 
+        "🧪 Demó Mód (Menhelyi kipróbálás)", 
+        "🔒 Menhelyi Nyilvántartás (Admin)"
+    ])
 
-    # --- 1. FÜL: PUBLIKUS GAZDI KERESŐ ---
+    # --- 1. FÜL: PUBLIKUS ÉLES GAZDI KERESŐ ---
     with tab1:
         st.header("Találd meg a tökéletes társat!")
-        st.write("Töltsd ki az élethelyzeted, és az algoritmus megmutatja a hozzád illő kutyákat.")
+        st.write("Töltsd ki az élethelyzeted, és az algoritmus megmutatja a hozzád illő gazdikereső kutyákat.")
 
         col1, col2 = st.columns(2)
         with col1:
-            app_name = st.text_input("Jelentkező neve", "Kovács Péter")
-            app_housing = st.selectbox("Lakóhely típusa", ["Lakás", "Kertes ház"])
-            app_work = st.slider("Mennyi időt töltesz távol otthonról naponta? (óra)", 0, 12, 4)
+            app_name = st.text_input("Jelentkező neve", "Kovács Péter", key="live_name")
+            app_housing = st.selectbox("Lakóhely típusa", ["Lakás", "Kertes ház"], key="live_house")
+            app_work = st.slider("Mennyi időt töltesz távol otthonról naponta? (óra)", 0, 12, 4, key="live_work")
         
         with col2:
-            app_garden = st.checkbox("Van saját, biztonságos kertem", value=False)
-            app_kids = st.checkbox("Van kisgyermek a családban", value=False)
-            app_exp = st.checkbox("Tapasztalt kutyatartó vagyok (volt már problémás/nagytestű kutyám)", value=False)
+            app_garden = st.checkbox("Van saját, biztonságos kertem", value=False, key="live_garden")
+            app_kids = st.checkbox("Van kisgyermek a családban", value=False, key="live_kids")
+            app_exp = st.checkbox("Tapasztalt kutyatartó vagyok (volt már problémás/nagytestű kutyám)", value=False, key="live_exp")
 
-        if st.button("🔍 Hozzám illő kutyák keresése", type="primary"):
+        if st.button("🔍 Hozzám illő kutyák keresése", type="primary", key="live_search"):
             dogs = get_all_dogs()
             if not dogs:
-                st.info("A menhely adatbázisa jelenleg üres. A menhelyi munkatársak hamarosan feltöltik a védenceket!")
+                st.info("Az éles menhelyi adatbázis jelenleg üres. Próbáld ki a rendszert a középső **Demó Mód** fülön!")
             else:
                 st.subheader(f"✨ Riport: {app_name} részére")
                 
@@ -123,7 +154,7 @@ def main():
                     if score >= 60:
                         matches.append((dog, score))
                 
-                matches.sort(key=lambda x: x[1], reverse=True)
+                matches.sort(key=lambda x: x, reverse=True)
 
                 if not matches:
                     st.warning("⚠️ Sajnos jelenleg nincs olyan kutyánk, aki biztonsággal passzolna az élethelyzetedhez.")
@@ -132,7 +163,7 @@ def main():
                         badge = "🥇 Tökéletes párosítás!" if score == 100 else "👍 Jó választás lehet"
                         
                         with st.container(border=True):
-                            c_img, c_info = st.columns([1, 2])
+                            c_img, c_info = st.columns()
                             with c_img:
                                 if dog["image_data"]:
                                     st.image(base64.b64decode(dog["image_data"]), use_container_width=True)
@@ -146,62 +177,53 @@ def main():
                                          f"**Tapasztalatot igényel:** {'Igen' if dog['experience_required'] else 'Nem'}")
                                 st.success(f"🏠 **Menhely / Szervezet:** {dog['shelter_name']}\n\n📞 **Elérhetőség:** {dog['shelter_contact']}")
 
-    # --- 2. FÜL: JELSZÓVAL VÉDETT MENHELYI ADMIN ---
+    # --- 2. FÜL: JELSZÓ NÉLKÜLI DEMÓ MÓD MENHELYEKNEK ---
     with tab2:
-        st.header("Menhelyi munkatársi felület")
-        password_input = st.text_input("Add meg a menhelyi jelszót a szerkesztéshez:", type="password")
+        st.header("🧪 Interaktív Demó Mód (Jelszó nélkül)")
+        st.info("ℹ️ **Kedves Állatvédők!** Itt jelszó nélkül, szabadon kipróbálhatják a rendszer működését. Az itt feltöltött tesztkutyák nem kerülnek be az éles adatbázisba, csak az Önök böngészőjében jelennek meg a teszt erejéig.")
 
-        if password_input == MENHELY_JELSZO:
-            st.success("🔓 Sikeres bejelentkezés!")
-            
-            st.subheader("➕ Új mentett kutya regisztrálása")
-            with st.form("dog_form", clear_on_submit=True):
-                dog_name = st.text_input("Kutya neve / azonosítója", placeholder="Pl.: Bodri, Rex, 12-es kennel")
+        with st.expander("➕ 1. Lépés: Próbakutya feltöltése (Kattintson a lenyitáshoz)", expanded=True):
+            with st.form("demo_dog_form", clear_on_submit=True):
+                d_name = st.text_input("Tesztkutya neve", placeholder="Pl.: Buksi")
+                col_ds1, col_ds2 = st.columns(2)
+                with col_ds1:
+                    d_shelter = st.text_input("Szervezet neve", "Teszt Menhely")
+                with col_ds2:
+                    d_contact = st.text_input("Elérhetőség", "+36 20 111 2222")
+
+                d_size = st.selectbox("Kutya mérete", ["Kicsi (S)", "Közepes (M)", "Nagy (L)"])
+                d_energy = st.slider("Energiaszint", 1, 5, 3)
+                d_file = st.file_uploader("Tesztfotó feltöltése (opcionális)", type=["jpg", "jpeg", "png"])
                 
-                col_s1, col_s2 = st.columns(2)
-                with col_s1:
-                    shelter_name = st.text_input("Menhely / Alapítvány neve", placeholder="Pl.: Érdi Állatvédők")
-                with col_s2:
-                    shelter_contact = st.text_input("Elérhetőség (Telefon / E-mail)", placeholder="Pl.: +36 30 123 4567")
+                d_garden = st.checkbox("Kizárólag kertes házba költözhet")
+                d_kids = st.checkbox("Gyerekbarát")
+                d_exp = st.checkbox("Tapasztalt gazdit igényel")
 
-                dog_size = st.selectbox("Kutya mérete", ["Kicsi (S)", "Közepes (M)", "Nagy (L)"])
-                dog_energy = st.slider("Energiaszint (1: lusta/idős - 5: hiperaktív)", 1, 5, 3)
-                uploaded_file = st.file_uploader("Kutya fotójának feltöltése (JPG, PNG)", type=["jpg", "jpeg", "png"])
-                
-                st.write("Speciális igények:")
-                dog_garden = st.checkbox("Kizárólag kertes házba költözhet")
-                dog_kids = st.checkbox("Gyerekbarát (kisgyerekes családba is vihető)")
-                dog_exp = st.checkbox("Tapasztalt gazdit igényel")
-
-                submitted = st.form_submit_button("💾 Kutya és adatok mentése")
-                if submitted:
-                    if dog_name.strip() == "":
-                        st.error("Kérjük, adj meg egy nevet a kutyának!")
+                if st.form_submit_button("🧪 Próbakutya hozzáadása a teszthez"):
+                    if d_name.strip() == "":
+                        st.error("Adjon meg egy nevet a tesztkutyának!")
                     else:
-                        img_b64 = None
-                        if uploaded_file is not None:
-                            img_b64 = base64.b64encode(uploaded_file.read()).decode("utf-8")
-                        save_dog(dog_name, dog_size, dog_energy, dog_garden, dog_kids, dog_exp, shelter_name, shelter_contact, img_b64)
-                        st.success(f"🎉 **{dog_name}** sikeresen elmentve a felhős adatbázisba!")
+                        d_img = base64.b64encode(d_file.read()).decode("utf-8") if d_file else None
+                        st.session_state.demo_dogs.insert(0, {
+                            "name": d_name,
+                            "size": d_size,
+                            "energy_level": d_energy,
+                            "needs_garden": d_garden,
+                            "kid_friendly": d_kids,
+                            "experience_required": d_exp,
+                            "shelter_name": d_shelter,
+                            "shelter_contact": d_contact,
+                            "image_data": d_img
+                        })
+                        st.success(f"🎉 **{d_name}** bekerült a demó listába! Tesztelje le lejjebb a párosítást!")
 
-            st.divider()
-            st.subheader("🏠 Jelenlegi állomány kezelése (Törlés / Gazdisodás)")
-            current_dogs = get_all_dogs()
-            if not current_dogs:
-                st.text("Az adatbázis még nem tartalmaz kutyát.")
-            else:
-                for d in current_dogs:
-                    col_name, col_del = st.columns([4, 1])
-                    with col_name:
-                        st.write(f"🐾 **{d['name']}** — *{d['shelter_name']}* ({d['size']})")
-                    with col_del:
-                        if st.button("🗑️ Törlés", key=f"del_{d['id']}"):
-                            delete_dog(d['id'])
-                            st.rerun()
-        elif password_input != "":
-            st.error("❌ Hibás jelszó! A menhelyi adatok módosításához kérj hozzáférést az adminisztrátortól.")
-        else:
-            st.info("ℹ️ Ez a felület jelszóval védett. A látogatók az első fülön tudnak kutyát keresni.")
-
-if __name__ == "__main__":
-    main()
+        st.divider()
+        st.subheader("🔍 2. Lépés: Tesztelje a párosító algoritmust!")
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            demo_housing = st.selectbox("Teszt gazdi lakóhelye", ["Lakás", "Kertes ház"])
+            demo_work = st.slider("Napi távol töltött órák", 0, 12, 4)
+        with col_d2:
+            demo_garden = st.checkbox("Van saját kertje")
+            demo_kids = st.checkbox("Van kisgyermeke")
+            demo_exp = st.checkbox("Tapasztalt kutyatartó")
