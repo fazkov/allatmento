@@ -7,7 +7,7 @@ MENHELY_JELSZO = "menhely2026" # Ezt a jelszót bármikor átírhatod!
 
 # --- ADATBÁZIS KEZELÉS ---
 def init_db():
-    conn = sqlite3.connect("shelter_v2.db")
+    conn = sqlite3.connect("shelter_v3.db")
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS dogs (
@@ -18,33 +18,39 @@ def init_db():
             needs_garden INTEGER,
             kid_friendly INTEGER,
             experience_required INTEGER,
+            shelter_name TEXT,
+            shelter_contact TEXT,
             image_data TEXT
         )
     """)
     conn.commit()
     conn.close()
 
-def save_dog(name, size, energy, garden, kids, exp, image_base64):
-    conn = sqlite3.connect("shelter_v2.db")
+def save_dog(name, size, energy, garden, kids, exp, shelter_name, shelter_contact, image_base64):
+    conn = sqlite3.connect("shelter_v3.db")
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO dogs (name, size, energy_level, needs_garden, kid_friendly, experience_required, image_data)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (name, size, energy, int(garden), int(kids), int(exp), image_base64))
+        INSERT INTO dogs (name, size, energy_level, needs_garden, kid_friendly, experience_required, shelter_name, shelter_contact, image_data)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (name, size, energy, int(garden), int(kids), int(exp), shelter_name, shelter_contact, image_base64))
     conn.commit()
     conn.close()
 
 def delete_dog(dog_id):
-    conn = sqlite3.connect("shelter_v2.db")
+    conn = sqlite3.connect("shelter_v3.db")
     cursor = conn.cursor()
     cursor.execute("DELETE FROM dogs WHERE id = ?", (dog_id,))
     conn.commit()
     conn.close()
 
 def get_all_dogs():
-    conn = sqlite3.connect("shelter_v2.db")
+    conn = sqlite3.connect("shelter_v3.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT id, name, size, energy_level, needs_garden, kid_friendly, experience_required, image_data FROM dogs")
+    cursor.execute("""
+        SELECT id, name, size, energy_level, needs_garden, kid_friendly, 
+               experience_required, shelter_name, shelter_contact, image_data 
+        FROM dogs
+    """)
     rows = cursor.fetchall()
     conn.close()
     
@@ -58,7 +64,9 @@ def get_all_dogs():
             "needs_garden": bool(row[4]),
             "kid_friendly": bool(row[5]),
             "experience_required": bool(row[6]),
-            "image_data": row[7]
+            "shelter_name": row[7] if row[7] else "Nincs megadva",
+            "shelter_contact": row[8] if row[8] else "Nincs megadva",
+            "image_data": row[9]
         })
     return dogs
 
@@ -149,8 +157,9 @@ def main():
                                 st.subheader(f"{dog['name']} — {score}% ({badge})")
                                 st.write(f"**Méret:** {dog['size']} | **Energiaszint:** {dog['energy_level']}/5")
                                 st.write(f"**Kert igény:** {'Igen' if dog['needs_garden'] else 'Nem'} | "
-                                         f"**Gyerekbarát:** {'Igen' if dog['kid_friendly'] else 'Nem'}")
-                                st.write(f"**Tapasztalatot igényel:** {'Igen' if dog['experience_required'] else 'Nem'}")
+                                         f"**Gyerekbarát:** {'Igen' if dog['kid_friendly'] else 'Nem'} | "
+                                         f"**Tapasztalatot igényel:** {'Igen' if dog['experience_required'] else 'Nem'}")
+                                st.success(f"🏠 **Menhely / Szervezet:** {dog['shelter_name']}\n\n📞 **Elérhetőség:** {dog['shelter_contact']}")
 
     # --- 2. FÜL: JELSZÓVAL VÉDETT MENHELYI ADMIN ---
     with tab2:
@@ -163,6 +172,13 @@ def main():
             st.subheader("➕ Új mentett kutya regisztrálása")
             with st.form("dog_form", clear_on_submit=True):
                 dog_name = st.text_input("Kutya neve / azonosítója", placeholder="Pl.: Bodri, Rex, 12-es kennel")
+                
+                col_s1, col_s2 = st.columns(2)
+                with col_s1:
+                    shelter_name = st.text_input("Menhely / Alapítvány neve", placeholder="Pl.: Érdi Állatvédők")
+                with col_s2:
+                    shelter_contact = st.text_input("Elérhetőség (Telefon / E-mail)", placeholder="Pl.: +36 30 123 4567")
+
                 dog_size = st.selectbox("Kutya mérete", ["Kicsi (S)", "Közepes (M)", "Nagy (L)"])
                 dog_energy = st.slider("Energiaszint (1: lusta/idős - 5: hiperaktív)", 1, 5, 3)
                 uploaded_file = st.file_uploader("Kutya fotójának feltöltése (JPG, PNG)", type=["jpg", "jpeg", "png"])
@@ -172,7 +188,7 @@ def main():
                 dog_kids = st.checkbox("Gyerekbarát (kisgyerekes családba is vihető)")
                 dog_exp = st.checkbox("Tapasztalt gazdit igényel")
 
-                submitted = st.form_submit_button("💾 Kutya és fotó mentése")
+                submitted = st.form_submit_button("💾 Kutya és adatok mentése")
                 if submitted:
                     if dog_name.strip() == "":
                         st.error("Kérjük, adj meg egy nevet a kutyának!")
@@ -180,8 +196,8 @@ def main():
                         img_b64 = None
                         if uploaded_file is not None:
                             img_b64 = base64.b64encode(uploaded_file.read()).decode("utf-8")
-                        save_dog(dog_name, dog_size, dog_energy, dog_garden, dog_kids, dog_exp, img_b64)
-                        st.success(f"🎉 **{dog_name}** sikeresen elmentve a fotóval együtt!")
+                        save_dog(dog_name, dog_size, dog_energy, dog_garden, dog_kids, dog_exp, shelter_name, shelter_contact, img_b64)
+                        st.success(f"🎉 **{dog_name}** sikeresen elmentve a menhelyi elérhetőségekkel együtt!")
 
             st.divider()
             st.subheader("🏠 Jelenlegi állomány kezelése (Törlés / Gazdisodás)")
@@ -192,7 +208,7 @@ def main():
                 for d in current_dogs:
                     col_name, col_del = st.columns([3, 1])
                     with col_name:
-                        st.write(f"🐾 **{d['name']}** ({d['size']}, Energia: {d['energy_level']}/5)")
+                        st.write(f"🐾 **{d['name']}** — *{d['shelter_name']}* ({d['size']})")
                     with col_del:
                         if st.button("🗑️ Törlés", key=f"del_{d['id']}"):
                             delete_dog(d['id'])
