@@ -1,8 +1,13 @@
 import sqlite3
+import base64
 import streamlit as st
 
+# --- BEÁLLÍTÁSOK ---
+MENHELY_JELSZO = "menhely2026" # Ezt a jelszót bármikor átírhatod!
+
+# --- ADATBÁZIS KEZELÉS ---
 def init_db():
-    conn = sqlite3.connect("shelter.db")
+    conn = sqlite3.connect("shelter_v2.db")
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS dogs (
@@ -12,26 +17,34 @@ def init_db():
             energy_level INTEGER,
             needs_garden INTEGER,
             kid_friendly INTEGER,
-            experience_required INTEGER
+            experience_required INTEGER,
+            image_data TEXT
         )
     """)
     conn.commit()
     conn.close()
 
-def save_dog(name, size, energy, garden, kids, exp):
-    conn = sqlite3.connect("shelter.db")
+def save_dog(name, size, energy, garden, kids, exp, image_base64):
+    conn = sqlite3.connect("shelter_v2.db")
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO dogs (name, size, energy_level, needs_garden, kid_friendly, experience_required)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (name, size, energy, int(garden), int(kids), int(exp)))
+        INSERT INTO dogs (name, size, energy_level, needs_garden, kid_friendly, experience_required, image_data)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (name, size, energy, int(garden), int(kids), int(exp), image_base64))
+    conn.commit()
+    conn.close()
+
+def delete_dog(dog_id):
+    conn = sqlite3.connect("shelter_v2.db")
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM dogs WHERE id = ?", (dog_id,))
     conn.commit()
     conn.close()
 
 def get_all_dogs():
-    conn = sqlite3.connect("shelter.db")
+    conn = sqlite3.connect("shelter_v2.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT id, name, size, energy_level, needs_garden, kid_friendly, experience_required FROM dogs")
+    cursor.execute("SELECT id, name, size, energy_level, needs_garden, kid_friendly, experience_required, image_data FROM dogs")
     rows = cursor.fetchall()
     conn.close()
     
@@ -44,10 +57,12 @@ def get_all_dogs():
             "energy_level": row[3],
             "needs_garden": bool(row[4]),
             "kid_friendly": bool(row[5]),
-            "experience_required": bool(row[6])
+            "experience_required": bool(row[6]),
+            "image_data": row[7]
         })
     return dogs
 
+# --- PÁROSÍTÓ ALGORITMUS ---
 def calculate_match_score(dog, app_housing, app_work, app_garden, app_kids, app_exp):
     score = 0
     total_criteria = 5
@@ -76,6 +91,7 @@ def calculate_match_score(dog, app_housing, app_work, app_garden, app_kids, app_
 
     return int((score / total_criteria) * 100)
 
+# --- WEBFELÜLET ---
 def main():
     st.set_page_config(page_title="Intelligens Állatmentő Rendszer", page_icon="🐾", layout="centered")
     init_db()
@@ -83,8 +99,9 @@ def main():
     st.title("🐾 Intelligens Állatmentő & Párosító Rendszer")
     st.write("Nyugati mintára épült menhelyi menedzsment és gazdi-matching szoftver.")
 
-    tab1, tab2 = st.tabs(["📋 Gazdi Kereső (Matching)", "🐕 Menhelyi Nyilvántartás (Új kutya)"])
+    tab1, tab2 = st.tabs(["📋 Gazdi Kereső (Matching)", "🔒 Menhelyi Nyilvántartás (Admin)"])
 
+    # --- 1. FÜL: PUBLIKUS GAZDI KERESŐ ---
     with tab1:
         st.header("Találd meg a tökéletes társat!")
         st.write("Töltsd ki az élethelyzeted, és az algoritmus megmutatja a hozzád illő kutyákat.")
@@ -103,7 +120,7 @@ def main():
         if st.button("🔍 Hozzám illő kutyák keresése", type="primary"):
             dogs = get_all_dogs()
             if not dogs:
-                st.info("A menhely adatbázisa jelenleg üres. Kérjük, előbb vigyél fel kutyákat a második fülön!")
+                st.info("A menhely adatbázisa jelenleg üres. A menhelyi munkatársak hamarosan feltöltik a védenceket!")
             else:
                 st.subheader(f"✨ Riport: {app_name} részére")
                 
@@ -119,46 +136,71 @@ def main():
                     st.warning("⚠️ Sajnos jelenleg nincs olyan kutyánk, aki biztonsággal passzolna az élethelyzetedhez.")
                 else:
                     for dog, score in matches:
-                        if score == 100:
-                            badge = "🥇 Tökéletes párosítás!"
-                        else:
-                            badge = "👍 Jó választás lehet"
+                        badge = "🥇 Tökéletes párosítás!" if score == 100 else "👍 Jó választás lehet"
                         
-                        st.info(f"**{dog['name']}** — **{score}%-os egyezés** ({badge})\n\n"
-                                f"ℹ️ *Tulajdonságok:* Méret: {dog['size']} | Energiaszint: {dog['energy_level']}/5 | "
-                                f"Kert igény: {'Igen' if dog['needs_garden'] else 'Nem'} | "
-                                f"Gyerekbarát: {'Igen' if dog['kid_friendly'] else 'Nem'} | "
-                                f"Tapasztalatot igényel: {'Igen' if dog['experience_required'] else 'Nem'}")
+                        with st.container(border=True):
+                            c_img, c_info = st.columns([1, 2])
+                            with c_img:
+                                if dog["image_data"]:
+                                    st.image(base64.b64decode(dog["image_data"]), use_container_width=True)
+                                else:
+                                    st.markdown("🐕\n*(Nincs feltöltött fotó)*")
+                            with c_info:
+                                st.subheader(f"{dog['name']} — {score}% ({badge})")
+                                st.write(f"**Méret:** {dog['size']} | **Energiaszint:** {dog['energy_level']}/5")
+                                st.write(f"**Kert igény:** {'Igen' if dog['needs_garden'] else 'Nem'} | "
+                                         f"**Gyerekbarát:** {'Igen' if dog['kid_friendly'] else 'Nem'}")
+                                st.write(f"**Tapasztalatot igényel:** {'Igen' if dog['experience_required'] else 'Nem'}")
 
+    # --- 2. FÜL: JELSZÓVAL VÉDETT MENHELYI ADMIN ---
     with tab2:
-        st.header("Új mentett kutya regisztrálása")
-        st.write("Az itt elmentett adatok közvetlenül bekerülnek a `shelter.db` adatbázisba.")
+        st.header("Menhelyi munkatársi felület")
+        password_input = st.text_input("Add meg a menhelyi jelszót a szerkesztéshez:", type="password")
 
-        with st.form("dog_form", clear_on_submit=True):
-            dog_name = st.text_input("Kutya neve / azonosítója", placeholder="Pl.: Bodri, Rex, 12-es kennel lakója")
-            dog_size = st.selectbox("Kutya mérete", ["Kicsi (S)", "Közepes (M)", "Nagy (L)"])
-            dog_energy = st.slider("Energiaszint (1: lusta/idős - 5: hiperaktív/munkakutya)", 1, 5, 3)
+        if password_input == MENHELY_JELSZO:
+            st.success("🔓 Sikeres bejelentkezés!")
             
-            st.write("Speciális igények:")
-            dog_garden = st.checkbox("Kizárólag kertes házba költözhet (lakásba nem való)")
-            dog_kids = st.checkbox("Gyerekbarát (bátran vihető kisgyerekes családba)")
-            dog_exp = st.checkbox("Tapasztalt gazdit igényel (pl. domináns, szökős vagy rehabilitációt igénylő)")
+            st.subheader("➕ Új mentett kutya regisztrálása")
+            with st.form("dog_form", clear_on_submit=True):
+                dog_name = st.text_input("Kutya neve / azonosítója", placeholder="Pl.: Bodri, Rex, 12-es kennel")
+                dog_size = st.selectbox("Kutya mérete", ["Kicsi (S)", "Közepes (M)", "Nagy (L)"])
+                dog_energy = st.slider("Energiaszint (1: lusta/idős - 5: hiperaktív)", 1, 5, 3)
+                uploaded_file = st.file_uploader("Kutya fotójának feltöltése (JPG, PNG)", type=["jpg", "jpeg", "png"])
+                
+                st.write("Speciális igények:")
+                dog_garden = st.checkbox("Kizárólag kertes házba költözhet")
+                dog_kids = st.checkbox("Gyerekbarát (kisgyerekes családba is vihető)")
+                dog_exp = st.checkbox("Tapasztalt gazdit igényel")
 
-            submitted = st.form_submit_button("💾 Kutya mentése az adatbázisba")
-            if submitted:
-                if dog_name.strip() == "":
-                    st.error("Kérjük, adj meg egy nevet a kutyának!")
-                else:
-                    save_dog(dog_name, dog_size, dog_energy, dog_garden, dog_kids, dog_exp)
-                    st.success(f"🎉 **{dog_name}** sikeresen elmentve az adatbázisba!")
+                submitted = st.form_submit_button("💾 Kutya és fotó mentése")
+                if submitted:
+                    if dog_name.strip() == "":
+                        st.error("Kérjük, adj meg egy nevet a kutyának!")
+                    else:
+                        img_b64 = None
+                        if uploaded_file is not None:
+                            img_b64 = base64.b64encode(uploaded_file.read()).decode("utf-8")
+                        save_dog(dog_name, dog_size, dog_energy, dog_garden, dog_kids, dog_exp, img_b64)
+                        st.success(f"🎉 **{dog_name}** sikeresen elmentve a fotóval együtt!")
 
-        st.subheader("🏠 Jelenleg a menhelyen lévő kutyák:")
-        current_dogs = get_all_dogs()
-        if not current_dogs:
-            st.text("Az adatbázis még nem tartalmaz kutyát.")
+            st.divider()
+            st.subheader("🏠 Jelenlegi állomány kezelése (Törlés / Gazdisodás)")
+            current_dogs = get_all_dogs()
+            if not current_dogs:
+                st.text("Az adatbázis még nem tartalmaz kutyát.")
+            else:
+                for d in current_dogs:
+                    col_name, col_del = st.columns([3, 1])
+                    with col_name:
+                        st.write(f"🐾 **{d['name']}** ({d['size']}, Energia: {d['energy_level']}/5)")
+                    with col_del:
+                        if st.button("🗑️ Törlés", key=f"del_{d['id']}"):
+                            delete_dog(d['id'])
+                            st.rerun()
+        elif password_input != "":
+            st.error("❌ Hibás jelszó! A menhelyi adatok módosításához kérj hozzáférést az adminisztrátortól.")
         else:
-            for d in current_dogs:
-                st.text(f"• {d['name']} (Méret: {d['size']}, Energia: {d['energy_level']}/5)")
+            st.info("ℹ️ Ez a felület jelszóval védett. A látogatók az első fülön tudnak kutyát keresni.")
 
 if __name__ == "__main__":
     main()
