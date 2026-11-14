@@ -39,18 +39,18 @@ def get_all_dogs():
     conn.close()
     
     dogs = []
-    for row in rows:
+    for d_id, name, size, energy, garden, kids, exp, s_name, s_contact, img in rows:
         dogs.append({
-            "id": row[0],
-            "name": row[1],
-            "size": row[2],
-            "energy_level": row[3],
-            "needs_garden": row[4],
-            "kid_friendly": row[5],
-            "experience_required": row[6],
-            "shelter_name": row[7] if row[7] else "Nincs megadva",
-            "shelter_contact": row[8] if row[8] else "Nincs megadva",
-            "image_data": row[9]
+            "id": d_id,
+            "name": name,
+            "size": size,
+            "energy_level": energy,
+            "needs_garden": garden,
+            "kid_friendly": kids,
+            "experience_required": exp,
+            "shelter_name": s_name if s_name else "Nincs megadva",
+            "shelter_contact": s_contact if s_contact else "Nincs megadva",
+            "image_data": img
         })
     return dogs
 
@@ -146,14 +146,14 @@ def main():
                 for dog in dogs:
                     score = calculate_match_score(dog, app_housing, app_work, app_garden, app_kids, app_exp)
                     if score >= 60:
-                        matches.append((dog, score))
+                        matches.append((score, dog))
                 
-                matches.sort(key=lambda x: x[1], reverse=True)
+                matches.sort(key=lambda item: item[0], reverse=True)
 
                 if not matches:
                     st.warning("⚠️ Sajnos jelenleg nincs olyan kutyánk, aki biztonsággal passzolna az élethelyzetedhez.")
                 else:
-                    for dog, score in matches:
+                    for score, dog in matches:
                         badge = "🥇 Tökéletes párosítás!" if score == 100 else "👍 Jó választás lehet"
                         
                         with st.container(border=True):
@@ -224,5 +224,3 @@ def main():
         if st.button("🚀 Demó párosítás indítása", type="primary"):
             demo_matches = []
             for dog in st.session_state.demo_dogs:
-                score = calculate_match_score(dog, demo_housing, demo_work, demo_garden, demo_kids, demo_exp)
-                if score >= 60:
