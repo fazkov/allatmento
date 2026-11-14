@@ -216,10 +216,6 @@ def delete_dog(dog_id):
             return cursor.rowcount > 0
 
 
-# =====================================================
-# 7. KUTYÁK LEKÉRDEZÉSE
-# =====================================================
-
 
 # =====================================================
 # 7. KUTYÁK LEKÉRDEZÉSE
@@ -1084,32 +1080,9 @@ def main():
 
         render_admin_tab()
 
-
 # =====================================================
 # 17. PROGRAM INDÍTÁSA
 # =====================================================
 
 if __name__ == "__main__":
-
     main()
-
-    dogs = []
-
-    for d in rows:
-
-        dogs.append({
-            "id": d[0],
-            "name": d[1],
-            "size": d[2] or "Nincs megadva",
-            "energy_level": (
-                d[3] if d[3] is not None else 3
-            ),
-            "needs_garden": bool(d[4]),
-            "kid_friendly": bool(d[5]),
-            "experience_required": bool(d[6]),
-            "shelter_name": d[7] or "Nincs megadva",
-            "shelter_contact": d[8] or "Nincs megadva",
-            "image_data": d[9]
-        })
-
-    return dogs
