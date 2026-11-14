@@ -2,10 +2,8 @@ import psycopg2
 import base64
 import streamlit as st
 
-# --- BEÁLLÍTÁSOK ---
-MENHELY_JELSZO = "menhely2026" # Ezt a jelszót bármikor átírhatod!
+MENHELY_JELSZO = "menhely2026"
 
-# --- FELHŐS ADATBÁZIS KEZELÉS (Supabase / PostgreSQL) ---
 def get_connection():
     return psycopg2.connect(st.secrets["DB_URL"])
 
@@ -43,20 +41,19 @@ def get_all_dogs():
     dogs = []
     for row in rows:
         dogs.append({
-            "id": row,
-            "name": row,
-            "size": row,
-            "energy_level": row,
-            "needs_garden": row,
-            "kid_friendly": row,
-            "experience_required": row,
-            "shelter_name": row if row else "Nincs megadva",
-            "shelter_contact": row if row else "Nincs megadva",
-            "image_data": row
+            "id": row[0],
+            "name": row[1],
+            "size": row[2],
+            "energy_level": row[3],
+            "needs_garden": row[4],
+            "kid_friendly": row[5],
+            "experience_required": row[6],
+            "shelter_name": row[7] if row[7] else "Nincs megadva",
+            "shelter_contact": row[8] if row[8] else "Nincs megadva",
+            "image_data": row[9]
         })
     return dogs
 
-# --- PÁROSÍTÓ ALGORITMUS ---
 def calculate_match_score(dog, app_housing, app_work, app_garden, app_kids, app_exp):
     score = 0
     total_criteria = 5
@@ -85,11 +82,9 @@ def calculate_match_score(dog, app_housing, app_work, app_garden, app_kids, app_
 
     return int((score / total_criteria) * 100)
 
-# --- WEBFELÜLET ---
 def main():
     st.set_page_config(page_title="Intelligens Állatmentő Rendszer", page_icon="🐾", layout="centered")
 
-    # Demó memóriatár inicializálása (csak az aktuális látogatónak él)
     if "demo_dogs" not in st.session_state:
         st.session_state.demo_dogs = [
             {
@@ -125,7 +120,6 @@ def main():
         "🔒 Menhelyi Nyilvántartás (Admin)"
     ])
 
-    # --- 1. FÜL: PUBLIKUS ÉLES GAZDI KERESŐ ---
     with tab1:
         st.header("Találd meg a tökéletes társat!")
         st.write("Töltsd ki az élethelyzeted, és az algoritmus megmutatja a hozzád illő gazdikereső kutyákat.")
@@ -154,7 +148,7 @@ def main():
                     if score >= 60:
                         matches.append((dog, score))
                 
-                matches.sort(key=lambda x: x, reverse=True)
+                matches.sort(key=lambda x: x[1], reverse=True)
 
                 if not matches:
                     st.warning("⚠️ Sajnos jelenleg nincs olyan kutyánk, aki biztonsággal passzolna az élethelyzetedhez.")
@@ -163,7 +157,7 @@ def main():
                         badge = "🥇 Tökéletes párosítás!" if score == 100 else "👍 Jó választás lehet"
                         
                         with st.container(border=True):
-                            c_img, c_info = st.columns()
+                            c_img, c_info = st.columns([1, 2])
                             with c_img:
                                 if dog["image_data"]:
                                     st.image(base64.b64decode(dog["image_data"]), use_container_width=True)
@@ -177,7 +171,6 @@ def main():
                                          f"**Tapasztalatot igényel:** {'Igen' if dog['experience_required'] else 'Nem'}")
                                 st.success(f"🏠 **Menhely / Szervezet:** {dog['shelter_name']}\n\n📞 **Elérhetőség:** {dog['shelter_contact']}")
 
-    # --- 2. FÜL: JELSZÓ NÉLKÜLI DEMÓ MÓD MENHELYEKNEK ---
     with tab2:
         st.header("🧪 Interaktív Demó Mód (Jelszó nélkül)")
         st.info("ℹ️ **Kedves Állatvédők!** Itt jelszó nélkül, szabadon kipróbálhatják a rendszer működését. Az itt feltöltött tesztkutyák nem kerülnek be az éles adatbázisba, csak az Önök böngészőjében jelennek meg a teszt erejéig.")
@@ -227,3 +220,9 @@ def main():
             demo_garden = st.checkbox("Van saját kertje")
             demo_kids = st.checkbox("Van kisgyermeke")
             demo_exp = st.checkbox("Tapasztalt kutyatartó")
+
+        if st.button("🚀 Demó párosítás indítása", type="primary"):
+            demo_matches = []
+            for dog in st.session_state.demo_dogs:
+                score = calculate_match_score(dog, demo_housing, demo_work, demo_garden, demo_kids, demo_exp)
+                if score >= 60:
