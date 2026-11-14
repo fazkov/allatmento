@@ -220,12 +220,16 @@ def delete_dog(dog_id):
 # 7. KUTYÁK LEKÉRDEZÉSE
 # =====================================================
 
+
+# =====================================================
+# 7. KUTYÁK LEKÉRDEZÉSE
+# =====================================================
+
 def get_all_dogs():
 
     with database_connection() as conn:
 
         with conn.cursor() as cursor:
-
             cursor.execute("""
                 SELECT
                     id,
@@ -243,6 +247,27 @@ def get_all_dogs():
             """)
 
             rows = cursor.fetchall()
+
+    dogs = []
+
+    for d in rows:
+        dogs.append({
+            "id": d[0],
+            "name": d[1],
+            "size": d[2] or "Nincs megadva",
+            "energy_level": (
+                d[3] if d[3] is not None else 3
+            ),
+            "needs_garden": bool(d[4]),
+            "kid_friendly": bool(d[5]),
+            "experience_required": bool(d[6]),
+            "shelter_name": d[7] or "Nincs megadva",
+            "shelter_contact": d[8] or "Nincs megadva",
+            "image_data": d[9]
+        })
+
+    return dogs
+
 # =====================================================
 # 8. PÁROSÍTÁSI RENDSZER
 # =====================================================
