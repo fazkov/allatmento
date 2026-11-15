@@ -1,41 +1,1019 @@
-    st.subheader("🐾 A menhely kutyái")
+import streamlit as st
+import psycopg2
+import base64
+import binascii
+import hmac
+from contextlib import contextmanager
+
+
+# =====================================================
+# 1. OLDALBEÁLLÍTÁSOK
+# =====================================================
+
+st.set_page_config(
+    page_title="Gazdikereső",
+    page_icon="🐶",
+    layout="wide"
+)
+
+MAX_IMAGE_SIZE = 5 * 1024 * 1024
+
+
+# =====================================================
+# 2. ADATBÁZIS KAPCSOLAT
+# =====================================================
+
+def get_connection():
+
+    db_url = st.secrets.get("DB_URL")
+
+    if not db_url:
+        raise RuntimeError("Nincs beállítva a DB_URL!")
+
+    return psycopg2.connect(
+        db_url,
+        connect_timeout=10,
+        sslmode="require"
+    )
+
+
+@contextmanager
+def database_connection():
+
+    conn = get_connection()
+
     try:
-        dogs = get_all_dogs(shelter_id=shelter_id)
+        yield conn
+        conn.commit()
+
+    except Exception:
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
+
+
+# =====================================================
+# 3. ADATBÁZIS LÉTREHOZÁSA ÉS FRISSÍTÉSE
+# =====================================================
+
+def init_database():
+
+    with database_connection() as conn:
+
+        with conn.cursor() as cursor:
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS dogs (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    size TEXT,
+                    energy_level INTEGER,
+                    needs_garden BOOLEAN DEFAULT FALSE,
+                    kid_friendly BOOLEAN DEFAULT FALSE,
+                    experience_required BOOLEAN DEFAULT FALSE,
+                    shelter_name TEXT,
+                    shelter_contact TEXT,
+                    image_data TEXT
+                )
+            """)
+
+            columns = {
+                "size": "TEXT",
+                "energy_level": "INTEGER",
+                "needs_garden": "BOOLEAN DEFAULT FALSE",
+                "kid_friendly": "BOOLEAN DEFAULT FALSE",
+                "experience_required": "BOOLEAN DEFAULT FALSE",
+                "shelter_name": "TEXT",
+                "shelter_contact": "TEXT",
+                "image_data": "TEXT"
+            }
+
+            for column, definition in columns.items():
+
+                cursor.execute(
+                    f"""
+                    ALTER TABLE dogs
+                    ADD COLUMN IF NOT EXISTS {column} {definition}
+                    """
+                )# =====================================================
+# 4. KÉPEK KEZELÉSE
+# =====================================================
+
+def process_image(image_file):
+
+    if image_file is None:
+        return None
+
+    image_data = image_file.getvalue()
+
+    if len(image_data) > MAX_IMAGE_SIZE:
+        raise ValueError("A kép maximum 5 MB lehet!")
+
+    if image_file.type not in (
+        "image/jpeg",
+        "image/png"
+    ):
+        raise ValueError("Csak JPG és PNG képek tölthetők fel!")
+
+    if not (
+        image_data.startswith(b"\xff\xd8\xff")
+        or image_data.startswith(b"\x89PNG\r\n\x1a\n")
+    ):
+        raise ValueError("Érvénytelen képfájl!")
+
+    return base64.b64encode(
+        image_data
+    ).decode("utf-8")
+
+
+def decode_image(image_data):
+
+    if not image_data:
+        return None
+
+    try:
+
+        decoded = base64.b64decode(
+            image_data,
+            validate=True
+        )
+
+        if (
+            decoded.startswith(b"\xff\xd8\xff")
+            or decoded.startswith(b"\x89PNG\r\n\x1a\n")
+        ):
+            return decoded
+
+        return None
+
+    except (ValueError, binascii.Error):
+        return None
+
+
+# =====================================================
+# 5. KUTYA MENTÉSE
+# =====================================================
+
+def save_dog(
+    name,
+    size,
+    energy,
+    garden,
+    kids,
+    exp,
+    shelter_name,
+    shelter_contact,
+    image_base64
+):
+
+    with database_connection() as conn:
+
+        with conn.cursor() as cursor:
+
+            cursor.execute("""
+                INSERT INTO dogs (
+                    name,
+                    size,
+                    energy_level,
+                    needs_garden,
+                    kid_friendly,
+                    experience_required,
+                    shelter_name,
+                    shelter_contact,
+                    image_data
+                )
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (
+                name,
+                size,
+                energy,
+                garden,
+                kids,
+                exp,
+                shelter_name,
+                shelter_contact,
+                image_base64
+            ))
+
+
+# =====================================================
+# 6. KUTYA TÖRLÉSE
+# =====================================================
+
+def delete_dog(dog_id):
+
+    with database_connection() as conn:
+
+        with conn.cursor() as cursor:
+
+            cursor.execute(
+                "DELETE FROM dogs WHERE id = %s",
+                (dog_id,)
+            )
+
+            return cursor.rowcount > 0
+
+
+# =====================================================
+# 7. KUTYÁK LEKÉRDEZÉSE
+# =====================================================
+
+def get_all_dogs():
+
+    with database_connection() as conn:
+
+        with conn.cursor() as cursor:
+
+            cursor.execute("""
+                SELECT
+                    id,
+                    name,
+                    size,
+                    energy_level,
+                    needs_garden,
+                    kid_friendly,
+                    experience_required,
+                    shelter_name,
+                    shelter_contact,
+                    image_data
+                FROM dogs
+                ORDER BY id DESC
+            """)
+
+            rows = cursor.fetchall()
+
+        dogs = []
+
+        for d in rows:
+
+            dogs.append({
+                "id": d[0],
+                "name": d[1],
+                "size": d[2] or "Nincs megadva",
+                "energy_level": (
+                    d[3] if d[3] is not None else 3
+                ),
+                "needs_garden": bool(d[4]),
+                "kid_friendly": bool(d[5]),
+                "experience_required": bool(d[6]),
+                "shelter_name": d[7] or "Nincs megadva",
+                "shelter_contact": d[8] or "Nincs megadva",
+                "image_data": d[9]
+            })
+
+        return dogs
+# =====================================================
+# 8. PÁROSÍTÁSI RENDSZER
+# =====================================================
+
+def calculate_match_score(
+    dog,
+    app_housing,
+    app_work,
+    app_garden,
+    app_kids,
+    app_exp
+):
+
+    if dog["needs_garden"] and not app_garden:
+        return 0
+
+    if dog["experience_required"] and not app_exp:
+        return 0
+
+    if app_kids and not dog["kid_friendly"]:
+        return 0
+
+    score = 0
+
+    # Kertigény
+    score += 20
+
+    # Gyerekbarát tulajdonság
+    if app_kids and dog["kid_friendly"]:
+        score += 20
+    elif not app_kids:
+        score += 20
+
+    # Tapasztalat
+    if dog["experience_required"] and app_exp:
+        score += 20
+    elif not dog["experience_required"]:
+        score += 20
+
+    # Lakhatás és méret
+    if dog["size"] == "Nagy (L)":
+
+        if app_housing == "Kertes ház":
+            score += 20
+        elif app_garden:
+            score += 15
+        else:
+            score += 5
+
+    else:
+        score += 20
+
+    # Energiaszint és egyedüllét
+    energy = dog["energy_level"]
+
+    if app_work <= 4:
+        score += 20
+
+    elif app_work <= 6:
+        score += 15 if energy <= 3 else 10
+
+    elif app_work <= 8:
+        score += 15 if energy <= 2 else 5
+
+    else:
+        score += 10 if energy <= 2 else 0
+
+    return min(100, max(0, int(score)))
+
+
+# =====================================================
+# 9. KUTYÁK PÁROSÍTÁSA
+# =====================================================
+
+def find_matches(
+    dogs,
+    housing,
+    work,
+    garden,
+    kids,
+    exp
+):
+
+    matches = []
+
+    for dog in dogs:
+
+        score = calculate_match_score(
+            dog,
+            housing,
+            work,
+            garden,
+            kids,
+            exp
+        )
+
+        if score >= 60:
+            matches.append((score, dog))
+
+    matches.sort(
+        key=lambda item: item[0],
+        reverse=True
+    )
+
+    return matches
+
+
+# =====================================================
+# 10. KUTYA ADATLAP
+# =====================================================
+
+def render_dog_card(dog, score):
+
+    with st.container(border=True):
+
+        col1, col2 = st.columns((1, 2))
+
+        with col1:
+
+            image = decode_image(
+                dog.get("image_data")
+            )
+
+            if image:
+
+                st.image(
+                    image,
+                    use_container_width=True
+                )
+
+            else:
+
+                st.markdown("## 🐕")
+                st.caption("Nincs feltöltött fotó")
+
+        with col2:
+
+            st.subheader(
+                f"{dog['name']} – {score}%"
+            )
+
+            if score >= 90:
+                st.success("🥇 Kiváló párosítás!")
+
+            elif score >= 75:
+                st.info("👍 Nagyon jó választás lehet!")
+
+            else:
+                st.warning("🐾 Érdemes megismerni!")
+
+            st.write(f"**Méret:** {dog['size']}")
+
+            st.write(
+                f"**Energiaszint:** "
+                f"{dog['energy_level']}/5"
+            )
+
+            st.write(
+                f"**Kertigény:** "
+                f"{'Igen' if dog['needs_garden'] else 'Nem'}"
+            )
+
+            st.write(
+                f"**Gyerekbarát:** "
+                f"{'Igen' if dog['kid_friendly'] else 'Nem'}"
+            )
+
+            st.write(
+                f"**Tapasztalt gazdi szükséges:** "
+                f"{'Igen' if dog['experience_required'] else 'Nem'}"
+            )
+
+            st.write(
+                f"🏠 **Menhely:** {dog['shelter_name']}"
+            )
+
+            st.write(
+                f"📞 **Elérhetőség:** "
+                f"{dog['shelter_contact']}"
+            )
+
+
+# =====================================================
+# 11. TALÁLATOK MEGJELENÍTÉSE
+# =====================================================
+
+def display_matches(matches):
+
+    if not matches:
+
+        st.warning(
+            "Sajnos nincs megfelelő kutyatalálat."
+        )
+
+        return
+
+    st.success(
+        f"🎉 {len(matches)} kutyát találtunk!"
+    )
+
+    for score, dog in matches:
+
+        render_dog_card(dog, score)
+
+
+# =====================================================
+# 12. ÉLES KUTYAKERESŐ
+# =====================================================
+
+def render_live_search():
+
+    st.header(
+        "🔍 Találd meg a tökéletes társat!"
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        app_name = st.text_input(
+            "Jelentkező neve",
+            key="live_name"
+        )
+
+        app_housing = st.selectbox(
+            "Lakóhely típusa",
+            ("Lakás", "Kertes ház"),
+            key="live_housing"
+        )
+
+        app_work = st.slider(
+            "Napi távol töltött órák",
+            0, 12, 4,
+            key="live_work"
+        )
+
+    with col2:
+
+        app_garden = st.checkbox(
+            "Van saját, biztonságos kertem",
+            key="live_garden"
+        )
+
+        app_kids = st.checkbox(
+            "Van kisgyermek a családban",
+            key="live_kids"
+        )
+
+        app_exp = st.checkbox(
+            "Tapasztalt kutyatartó vagyok",
+            key="live_exp"
+        )
+
+    if st.button(
+        "🔍 Hozzám illő kutyák keresése",
+        type="primary",
+        use_container_width=True
+    ):
+
+        try:
+
+            dogs = get_all_dogs()
+
+            if not dogs:
+
+                st.info(
+                    "Jelenleg nincs feltöltött kutya."
+                )
+
+                return
+
+            matches = find_matches(
+                dogs,
+                app_housing,
+                app_work,
+                app_garden,
+                app_kids,
+                app_exp
+            )
+
+            st.subheader(
+                f"✨ Riport: "
+                f"{app_name.strip() or 'Jelentkező'} részére"
+            )
+
+            display_matches(matches)
+
+        except Exception as e:
+
+            st.error(
+                f"Keresési hiba: {e}"
+            )
+
+
+# =====================================================
+# 13. DEMÓ MÓD
+# =====================================================
+
+def render_demo_tab():
+
+    st.header(
+        "🧪 Interaktív Demó Mód"
+    )
+
+    st.info(
+        "A demó kutyák csak az aktuális munkamenetben jelennek meg."
+    )
+
+    with st.expander(
+        "➕ Próbakutya feltöltése",
+        expanded=True
+    ):
+
+        with st.form(
+            "demo_form",
+            clear_on_submit=True
+        ):
+
+            name = st.text_input(
+                "Tesztkutya neve"
+            )
+
+            shelter = st.text_input(
+                "Szervezet neve",
+                "Teszt Menhely"
+            )
+
+            contact = st.text_input(
+                "Elérhetőség",
+                "+36 20 111 2222"
+            )
+
+            size = st.selectbox(
+                "Kutya mérete",
+                (
+                    "Kicsi (S)",
+                    "Közepes (M)",
+                    "Nagy (L)"
+                )
+            )
+
+            energy = st.slider(
+                "Energiaszint",
+                1, 5, 3
+            )
+
+            image_file = st.file_uploader(
+                "Kutya fotója",
+                type=["jpg", "jpeg", "png"],
+                key="demo_image"
+            )
+
+            garden = st.checkbox(
+                "Kizárólag kertes házba költözhet"
+            )
+
+            kids = st.checkbox(
+                "Gyerekbarát"
+            )
+
+            exp = st.checkbox(
+                "Tapasztalt gazdit igényel"
+            )
+
+            submitted = st.form_submit_button(
+                "🧪 Próbakutya hozzáadása"
+            )
+
+        if submitted:
+
+            if not name.strip():
+
+                st.error(
+                    "Add meg a kutya nevét!"
+                )
+
+            else:
+
+                try:
+
+                    image_data = process_image(
+                        image_file
+                    )
+
+                    st.session_state.demo_dogs.insert(
+                        0,
+                        {
+                            "id": None,
+                            "name": name.strip(),
+                            "size": size,
+                            "energy_level": energy,
+                            "needs_garden": garden,
+                            "kid_friendly": kids,
+                            "experience_required": exp,
+                            "shelter_name": shelter.strip() or "Nincs megadva",
+                            "shelter_contact": contact.strip() or "Nincs megadva",
+                            "image_data": image_data
+                        }
+                    )
+
+                    st.success(
+                        f"{name} sikeresen hozzáadva!"
+                    )
+
+                except Exception as e:
+
+                    st.error(
+                        f"Feltöltési hiba: {e}"
+                    )
+
+    st.divider()
+
+    st.subheader(
+        "🔍 Demó párosítás"
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        housing = st.selectbox(
+            "Gazdi lakóhelye",
+            ("Lakás", "Kertes ház"),
+            key="demo_housing"
+        )
+
+        work = st.slider(
+            "Napi távol töltött órák",
+            0, 12, 4,
+            key="demo_work"
+        )
+
+    with col2:
+
+        garden = st.checkbox(
+            "Van saját kertje",
+            key="demo_garden"
+        )
+
+        kids = st.checkbox(
+            "Van kisgyermeke",
+            key="demo_kids"
+        )
+
+        exp = st.checkbox(
+            "Tapasztalt kutyatartó",
+            key="demo_exp"
+        )
+
+    if st.button(
+        "🚀 Demó párosítás indítása",
+        type="primary",
+        use_container_width=True
+    ):
+
+        matches = find_matches(
+            st.session_state.demo_dogs,
+            housing,
+            work,
+            garden,
+            kids,
+            exp
+        )
+
+        display_matches(matches)
+# =====================================================
+# 14. ADMIN BEJELENTKEZÉS
+# =====================================================
+
+def render_admin_login():
+
+    password = st.secrets.get(
+        "MENHELY_JELSZO",
+        ""
+    )
+
+    if not password:
+
+        st.error(
+            "Nincs beállítva a menhelyi jelszó!"
+        )
+
+        return False
+
+    with st.form("admin_login_form"):
+
+        password_input = st.text_input(
+            "Menhelyi jelszó",
+            type="password"
+        )
+
+        submitted = st.form_submit_button(
+            "🔓 Bejelentkezés"
+        )
+
+    if submitted:
+
+        if hmac.compare_digest(
+            password_input,
+            password
+        ):
+
+            st.session_state.admin_logged_in = True
+            st.rerun()
+
+        else:
+
+            st.error("Hibás jelszó!")
+
+    return st.session_state.get(
+        "admin_logged_in",
+        False
+    )
+
+
+# =====================================================
+# 15. MENHELYI ADMINISZTRÁCIÓ
+# =====================================================
+
+def render_admin_tab():
+
+    st.header(
+        "🔐 Menhelyi nyilvántartás"
+    )
+
+    if not st.session_state.get(
+        "admin_logged_in",
+        False
+    ):
+
+        render_admin_login()
+        return
+
+    col1, col2 = st.columns((4, 1))
+
+    with col1:
+
+        st.success(
+            "🔓 Sikeres bejelentkezés!"
+        )
+
+    with col2:
+
+        if st.button("Kilépés"):
+
+            st.session_state.admin_logged_in = False
+            st.rerun()
+
+    st.subheader(
+        "➕ Új kutya felvétele"
+    )
+
+    with st.form(
+        "admin_dog_form",
+        clear_on_submit=True
+    ):
+
+        name = st.text_input(
+            "Kutya neve"
+        )
+
+        shelter = st.text_input(
+            "Menhely neve"
+        )
+
+        contact = st.text_input(
+            "Elérhetőség"
+        )
+
+        size = st.selectbox(
+            "Kutya mérete",
+            (
+                "Kicsi (S)",
+                "Közepes (M)",
+                "Nagy (L)"
+            )
+        )
+
+        energy = st.slider(
+            "Energiaszint",
+            1, 5, 3
+        )
+
+        image_file = st.file_uploader(
+            "Kutya fotója",
+            type=["jpg", "jpeg", "png"],
+            key="admin_image"
+        )
+
+        garden = st.checkbox(
+            "Kizárólag kertes házba költözhet"
+        )
+
+        kids = st.checkbox(
+            "Gyerekbarát"
+        )
+
+        exp = st.checkbox(
+            "Tapasztalt gazdit igényel"
+        )
+
+        submitted = st.form_submit_button(
+            "💾 Kutya mentése",
+            use_container_width=True
+        )
+
+    if submitted:
+
+        if not name.strip():
+
+            st.error(
+                "Add meg a kutya nevét!"
+            )
+
+        else:
+
+            try:
+
+                image_data = process_image(
+                    image_file
+                )
+
+                save_dog(
+                    name.strip(),
+                    size,
+                    energy,
+                    garden,
+                    kids,
+                    exp,
+                    shelter.strip(),
+                    contact.strip(),
+                    image_data
+                )
+
+                st.success(
+                    f"{name} sikeresen elmentve!"
+                )
+
+                st.rerun()
+
+            except Exception as e:
+
+                st.error(
+                    f"Mentési hiba: {e}"
+                )
+
+    st.divider()
+
+    st.subheader(
+        "🐾 Feltöltött kutyák"
+    )
+
+    try:
+
+        dogs = get_all_dogs()
+
     except Exception as e:
-        st.error(f"Adatbázis hiba: {e}")
+
+        st.error(
+            f"Adatbázis hiba: {e}"
+        )
+
         return
 
     if not dogs:
-        st.info("Ehhez a menhelyhez még nincs feltöltött kutya.")
+
+        st.info(
+            "Nincs még feltöltött kutya."
+        )
+
         return
 
     for dog in dogs:
+
         with st.container(border=True):
+
             col1, col2 = st.columns((3, 1))
+
             with col1:
-                st.write(f"🐾 **{dog['name']}**")
-                st.caption(dog["size"])
+
+                st.write(
+                    f"🐾 **{dog['name']}**"
+                )
+
+                st.caption(
+                    f"{dog['shelter_name']} | {dog['size']}"
+                )
+
             with col2:
-                if st.button("🗑️ Törlés", key=f"shelter_delete_{dog['id']}"):
-                    st.session_state.shelter_confirm_delete = dog["id"]
-            if st.session_state.get("shelter_confirm_delete") == dog["id"]:
-                st.warning(f"Biztosan törlöd {dog['name']} adatlapját?")
+
+                if st.button(
+                    "🗑️ Törlés",
+                    key=f"delete_{dog['id']}"
+                ):
+
+                    st.session_state.confirm_delete = dog["id"]
+
+            if st.session_state.get(
+                "confirm_delete"
+            ) == dog["id"]:
+
+                st.warning(
+                    f"Biztosan törlöd {dog['name']} adatlapját?"
+                )
+
                 yes, no = st.columns(2)
+
                 with yes:
-                    if st.button("Igen, törlés", key=f"shelter_confirm_{dog['id']}"):
+
+                    if st.button(
+                        "Igen, törlés",
+                        key=f"confirm_{dog['id']}"
+                    ):
+
                         try:
-                            deleted = delete_dog(dog["id"], shelter_id=shelter_id)
-                            st.session_state.shelter_confirm_delete = None
+
+                            deleted = delete_dog(
+                                dog["id"]
+                            )
+
+                            st.session_state.confirm_delete = None
+
                             if deleted:
-                                st.success("Kutya sikeresen törölve.")
+
+                                st.success(
+                                    "Kutya sikeresen törölve!"
+                                )
+
                             else:
-                                st.error("A kutya nem található a saját menhelyi fiókban.")
+
+                                st.warning(
+                                    "A kutya már nem található."
+                                )
+
                             st.rerun()
+
                         except Exception as e:
-                            st.error(f"Törlési hiba: {e}")
+
+                            st.error(
+                                f"Törlési hiba: {e}"
+                            )
+
                 with no:
-                    if st.button("Mégsem", key=f"shelter_cancel_{dog['id']}"):
-                        st.session_state.shelter_confirm_delete = None
+
+                    if st.button(
+                        "Mégsem",
+                        key=f"cancel_{dog['id']}"
+                    ):
+
+                        st.session_state.confirm_delete = None
                         st.rerun()
 
 
@@ -53,9 +1031,6 @@ def main():
 
     if "confirm_delete" not in st.session_state:
         st.session_state.confirm_delete = None
-
-    if "shelter_logged_in" not in st.session_state:
-        st.session_state.shelter_logged_in = False
 
     st.title(
         "🐶 Gazdikereső"
@@ -87,11 +1062,10 @@ def main():
 
         return
 
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3 = st.tabs([
         "🔍 Kutyakereső",
         "🧪 Demó mód",
-        "🏠 Menhelyi belépés",
-        "🔐 Adminisztrátor"
+        "🔐 Menhelyi admin"
     ])
 
     with tab1:
@@ -104,15 +1078,13 @@ def main():
 
     with tab3:
 
-        render_shelter_tab()
-
-    with tab4:
-
         render_admin_tab()
+
 
 # =====================================================
 # 17. PROGRAM INDÍTÁSA
 # =====================================================
 
 if __name__ == "__main__":
+
     main()
