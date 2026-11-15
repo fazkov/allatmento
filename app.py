@@ -3,6 +3,9 @@ import psycopg2
 import base64
 import binascii
 import hmac
+import hashlib
+import os
+import re
 from contextlib import contextmanager
 
 
@@ -1017,6 +1020,163 @@ def render_admin_tab():
                         st.rerun()
 
 
+
+# =====================================================
+# MENHELYI FIÓKOK – REGISZTRÁCIÓ ÉS JÓVÁHAGYÁS
+# =====================================================
+
+def init_shelter_accounts():
+    # Külön tábla: a meglévő dogs tábla nem módosul.
+    with database_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS shelter_accounts (
+                    id SERIAL PRIMARY KEY,
+                    shelter_name TEXT NOT NULL,
+                    contact_name TEXT NOT NULL,
+                    email TEXT NOT NULL UNIQUE,
+                    phone TEXT,
+                    password_hash TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'approved', 'rejected')),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+
+
+def hash_shelter_password(password):
+    salt = os.urandom(16)
+    iterations = 600000
+    digest = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, iterations)
+    return f"pbkdf2_sha256${iterations}${salt.hex()}${digest.hex()}"
+
+
+def verify_shelter_password(password, stored):
+    try:
+        algorithm, count, salt_hex, digest_hex = stored.split('$')
+        if algorithm != 'pbkdf2_sha256':
+            return False
+        candidate = hashlib.pbkdf2_hmac(
+            'sha256', password.encode('utf-8'), bytes.fromhex(salt_hex), int(count)
+        )
+        return hmac.compare_digest(candidate, bytes.fromhex(digest_hex))
+    except (ValueError, TypeError):
+        return False
+
+
+def register_shelter(shelter, contact, email, phone, password):
+    with database_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO shelter_accounts
+                    (shelter_name, contact_name, email, phone, password_hash)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (email) DO NOTHING
+                RETURNING id
+            """, (shelter, contact, email, phone or None, hash_shelter_password(password)))
+            return cursor.fetchone() is not None
+
+
+def render_shelter_registration():
+    st.header('🐾 Menhelyi regisztráció')
+    st.info('A fiók csak a központi admin jóváhagyása után használható.')
+    with st.form('shelter_registration_form', clear_on_submit=True):
+        shelter = st.text_input('Menhely vagy szervezet neve *', max_chars=200)
+        contact = st.text_input('Kapcsolattartó neve *', max_chars=200)
+        email = st.text_input('E-mail-cím *', max_chars=254)
+        phone = st.text_input('Telefonszám (nem kötelező)', max_chars=50)
+        password = st.text_input('Jelszó (legalább 12 karakter) *', type='password')
+        confirm = st.text_input('Jelszó megerősítése *', type='password')
+        submit = st.form_submit_button('Jelentkezés elküldése')
+    if submit:
+        email = email.strip().lower()
+        if not shelter.strip() or not contact.strip() or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email):
+            st.error('Add meg a szervezet nevét, a kapcsolattartót és egy érvényes e-mail-címet.')
+        elif len(password) < 12 or password != confirm:
+            st.error('A jelszavaknak egyezniük kell, és legalább 12 karakter hosszúnak kell lenniük.')
+        else:
+            try:
+                created = register_shelter(shelter.strip(), contact.strip(), email, phone.strip(), password)
+                if created:
+                    st.success('Jelentkezés rögzítve. A fiók jóváhagyásra vár.')
+                else:
+                    st.warning('Ezzel az e-mail-címmel már létezik jelentkezés.')
+            except Exception:
+                st.error('A regisztráció most nem sikerült. Kérjük, próbáld újra később.')
+
+
+def render_shelter_login():
+    st.header('🔑 Menhelyi belépés')
+    if st.session_state.get('shelter_account_id'):
+        st.success('Sikeres menhelyi bejelentkezés.')
+        st.info('A saját kutyák kezelését a következő fejlesztési szakaszban kapcsoljuk be.')
+        if st.button('Menhelyi kijelentkezés'):
+            st.session_state.shelter_account_id = None
+            st.rerun()
+        return
+    with st.form('shelter_login_form'):
+        email = st.text_input('Regisztrált e-mail-cím')
+        password = st.text_input('Jelszó', type='password')
+        submit = st.form_submit_button('Belépés')
+    if submit:
+        try:
+            with database_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute('SELECT id, password_hash, status FROM shelter_accounts WHERE email = %s', (email.strip().lower(),))
+                    account = cursor.fetchone()
+            if not account or not verify_shelter_password(password, account[1]):
+                st.error('Hibás e-mail-cím vagy jelszó.')
+            elif account[2] != 'approved':
+                st.warning('A fiók még nem kapott jóváhagyást, vagy elutasításra került.')
+            else:
+                st.session_state.shelter_account_id = account[0]
+                st.rerun()
+        except Exception:
+            st.error('A bejelentkezés jelenleg nem érhető el.')
+
+
+def render_shelter_approvals():
+    st.header('🛡️ Menhelyek jóváhagyása')
+    # Központi admin jelszó: a meglévő MENHELY_JELSZO titok.
+    if not st.session_state.get('admin_logged_in', False):
+        st.info('A jóváhagyáshoz először jelentkezz be a Menhelyi admin fülön.')
+        return
+    try:
+        with database_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT id, shelter_name, contact_name, email, phone, created_at
+                    FROM shelter_accounts WHERE status = 'pending'
+                    ORDER BY created_at ASC
+                """)
+                pending = cursor.fetchall()
+    except Exception:
+        st.error('A jelentkezések lekérése nem sikerült.')
+        return
+    if not pending:
+        st.info('Jelenleg nincs jóváhagyásra váró menhely.')
+    for account_id, shelter, contact, email, phone, created in pending:
+        with st.container(border=True):
+            st.subheader(shelter)
+            st.write(f'Kapcsolattartó: {contact}')
+            st.write(f'E-mail: {email}')
+            st.write(f'Telefon: {phone or "Nincs megadva"}')
+            st.caption(f'Jelentkezés: {created:%Y-%m-%d %H:%M}')
+            decision = st.radio('Döntés', ['Még nem döntöttem', 'Jóváhagyás', 'Elutasítás'], key=f'decision_{account_id}')
+            if st.button('Döntés mentése', key=f'save_decision_{account_id}'):
+                status = {'Jóváhagyás': 'approved', 'Elutasítás': 'rejected'}.get(decision)
+                if not status:
+                    st.warning('Válassz jóváhagyást vagy elutasítást.')
+                else:
+                    try:
+                        with database_connection() as conn:
+                            with conn.cursor() as cursor:
+                                cursor.execute("UPDATE shelter_accounts SET status = %s WHERE id = %s AND status = 'pending'", (status, account_id))
+                        st.rerun()
+                    except Exception:
+                        st.error('A döntés mentése nem sikerült.')
+
+
 # =====================================================
 # 16. FŐPROGRAM
 # =====================================================
@@ -1062,10 +1222,19 @@ def main():
 
         return
 
-    tab1, tab2, tab3 = st.tabs([
+    try:
+        init_shelter_accounts()
+    except Exception:
+        st.error("A menhelyi fiókok adatbázisa nem érhető el.")
+        return
+
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "🔍 Kutyakereső",
         "🧪 Demó mód",
-        "🔐 Menhelyi admin"
+        "🔐 Menhelyi admin",
+        "📝 Menhelyi regisztráció",
+        "🔑 Menhelyi belépés",
+        "🛡️ Jóváhagyások"
     ])
 
     with tab1:
@@ -1079,6 +1248,15 @@ def main():
     with tab3:
 
         render_admin_tab()
+
+    with tab4:
+        render_shelter_registration()
+
+    with tab5:
+        render_shelter_login()
+
+    with tab6:
+        render_shelter_approvals()
 
 
 # =====================================================
