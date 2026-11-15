@@ -1044,6 +1044,105 @@ def init_shelter_accounts():
             """)
 
 
+
+def init_shelter_dog_ownership():
+    """Existing dogs stay unassigned (NULL); only new shelter uploads get an owner."""
+    with database_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                ALTER TABLE dogs
+                ADD COLUMN IF NOT EXISTS shelter_account_id INTEGER
+                REFERENCES shelter_accounts(id) ON DELETE RESTRICT
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_dogs_shelter_account_id
+                ON dogs (shelter_account_id)
+            """)
+
+
+def get_approved_shelter(account_id):
+    if not isinstance(account_id, int) or isinstance(account_id, bool):
+        return None
+    with database_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT id, shelter_name, COALESCE(NULLIF(phone, ''), email)
+                FROM shelter_accounts
+                WHERE id = %s AND status = 'approved'
+            """, (account_id,))
+            return cursor.fetchone()
+
+
+def get_shelter_dogs(account_id):
+    with database_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT d.id, d.name, d.size, d.energy_level,
+                       d.needs_garden, d.kid_friendly, d.experience_required,
+                       d.shelter_name, d.shelter_contact, d.image_data
+                FROM dogs AS d
+                JOIN shelter_accounts AS s ON s.id = d.shelter_account_id
+                WHERE s.id = %s AND s.status = 'approved'
+                ORDER BY d.id DESC
+            """, (account_id,))
+            return [dict(zip((
+                'id', 'name', 'size', 'energy_level', 'needs_garden',
+                'kid_friendly', 'experience_required', 'shelter_name',
+                'shelter_contact', 'image_data'), row)) for row in cursor.fetchall()]
+
+
+def save_shelter_dog(account_id, name, size, energy, garden, kids, exp, image_data):
+    with database_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO dogs
+                    (name, size, energy_level, needs_garden, kid_friendly,
+                     experience_required, shelter_name, shelter_contact,
+                     image_data, shelter_account_id)
+                SELECT %s, %s, %s, %s, %s, %s,
+                       s.shelter_name, COALESCE(NULLIF(s.phone, ''), s.email),
+                       %s, s.id
+                FROM shelter_accounts AS s
+                WHERE s.id = %s AND s.status = 'approved'
+                RETURNING id
+            """, (name, size, energy, garden, kids, exp, image_data, account_id))
+            return cursor.fetchone() is not None
+
+
+def update_shelter_dog(account_id, dog_id, name, size, energy, garden, kids, exp,
+                       new_image_data=None):
+    with database_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                UPDATE dogs AS d
+                SET name = %s, size = %s, energy_level = %s,
+                    needs_garden = %s, kid_friendly = %s,
+                    experience_required = %s,
+                    image_data = COALESCE(%s, d.image_data)
+                WHERE d.id = %s AND d.shelter_account_id = %s
+                  AND EXISTS (
+                      SELECT 1 FROM shelter_accounts AS s
+                      WHERE s.id = %s AND s.status = 'approved'
+                  )
+            """, (name, size, energy, garden, kids, exp, new_image_data,
+                  dog_id, account_id, account_id))
+            return cursor.rowcount == 1
+
+
+def delete_shelter_dog(account_id, dog_id):
+    with database_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                DELETE FROM dogs AS d
+                WHERE d.id = %s AND d.shelter_account_id = %s
+                  AND EXISTS (
+                      SELECT 1 FROM shelter_accounts AS s
+                      WHERE s.id = %s AND s.status = 'approved'
+                  )
+            """, (dog_id, account_id, account_id))
+            return cursor.rowcount == 1
+
+
 def hash_shelter_password(password):
     salt = os.urandom(16)
     iterations = 600000
@@ -1107,12 +1206,22 @@ def render_shelter_registration():
 
 def render_shelter_login():
     st.header('🔑 Menhelyi belépés')
-    if st.session_state.get('shelter_account_id'):
-        st.success('Sikeres menhelyi bejelentkezés.')
-        st.info('A saját kutyák kezelését a következő fejlesztési szakaszban kapcsoljuk be.')
+    account_id = st.session_state.get('shelter_account_id')
+    if account_id:
+        try:
+            account = get_approved_shelter(account_id)
+        except Exception:
+            st.error('A menhelyi fiók ellenőrzése jelenleg nem sikerült.')
+            return
+        if not account:
+            st.session_state.shelter_account_id = None
+            st.warning('A menhelyi fiók már nem aktív. Jelentkezz be újra.')
+            return
+        st.success(f'Sikeres menhelyi bejelentkezés: {account[1]}')
         if st.button('Menhelyi kijelentkezés'):
             st.session_state.shelter_account_id = None
             st.rerun()
+        render_shelter_dog_management(account)
         return
     with st.form('shelter_login_form'):
         email = st.text_input('Regisztrált e-mail-cím')
@@ -1133,6 +1242,104 @@ def render_shelter_login():
                 st.rerun()
         except Exception:
             st.error('A bejelentkezés jelenleg nem érhető el.')
+
+
+def render_shelter_dog_management(account):
+    account_id, shelter_name, contact = account
+    st.subheader('🐾 Saját kutyáim')
+    st.caption('Csak az ehhez a menhelyi fiókhoz tartozó kutyák jelennek meg itt. '
+               'A korábban feltöltött tesztkutyák változatlanok maradnak.')
+
+    with st.expander('➕ Új kutya feltöltése', expanded=True):
+        with st.form('shelter_new_dog_form', clear_on_submit=True):
+            name = st.text_input('Kutya neve *', max_chars=200, key='shelter_new_name')
+            st.text_input('Menhely neve', value=shelter_name, disabled=True)
+            st.text_input('Kapcsolat', value=contact, disabled=True)
+            size = st.selectbox('Kutya mérete', ('Kicsi (S)', 'Közepes (M)', 'Nagy (L)'), key='shelter_new_size')
+            energy = st.slider('Energiaszint', 1, 5, 3, key='shelter_new_energy')
+            garden = st.checkbox('Kizárólag kertes házba költözhet', key='shelter_new_garden')
+            kids = st.checkbox('Gyerekbarát', key='shelter_new_kids')
+            exp = st.checkbox('Tapasztalt gazdit igényel', key='shelter_new_exp')
+            image_file = st.file_uploader('Kutya fotója', type=['jpg', 'jpeg', 'png'], key='shelter_new_image')
+            submitted = st.form_submit_button('💾 Kutya mentése')
+        if submitted:
+            if not name.strip():
+                st.error('Add meg a kutya nevét!')
+            else:
+                try:
+                    image_data = process_image(image_file)
+                    if save_shelter_dog(account_id, name.strip(), size, energy,
+                                        garden, kids, exp, image_data):
+                        st.success('A kutya sikeresen elmentve!')
+                        st.rerun()
+                    else:
+                        st.error('A menhelyi fiók nem jogosult a feltöltésre.')
+                except Exception as exc:
+                    st.error(f'A mentés nem sikerült: {exc}')
+
+    try:
+        dogs = get_shelter_dogs(account_id)
+    except Exception as exc:
+        st.error(f'A saját kutyák lekérése nem sikerült: {exc}')
+        return
+    if not dogs:
+        st.info('Még nem töltöttél fel kutyát ezzel a menhelyi fiókkal.')
+        return
+
+    for dog in dogs:
+        dog_id = dog['id']
+        with st.expander(f"🐕 {dog['name']} (#{dog_id})"):
+            existing_image = decode_image(dog.get('image_data'))
+            if existing_image:
+                st.image(existing_image, width=220)
+            with st.form(f'shelter_edit_form_{dog_id}'):
+                name = st.text_input('Kutya neve', value=dog['name'], max_chars=200,
+                                     key=f'shelter_edit_name_{dog_id}')
+                sizes = ('Kicsi (S)', 'Közepes (M)', 'Nagy (L)')
+                size = st.selectbox('Kutya mérete', sizes,
+                                    index=sizes.index(dog['size']) if dog['size'] in sizes else 1,
+                                    key=f'shelter_edit_size_{dog_id}')
+                energy = st.slider('Energiaszint', 1, 5,
+                                   int(dog['energy_level']) if dog['energy_level'] in range(1, 6) else 3,
+                                   key=f'shelter_edit_energy_{dog_id}')
+                garden = st.checkbox('Kizárólag kertes házba költözhet',
+                                     value=bool(dog['needs_garden']), key=f'shelter_edit_garden_{dog_id}')
+                kids = st.checkbox('Gyerekbarát', value=bool(dog['kid_friendly']),
+                                   key=f'shelter_edit_kids_{dog_id}')
+                exp = st.checkbox('Tapasztalt gazdit igényel',
+                                  value=bool(dog['experience_required']), key=f'shelter_edit_exp_{dog_id}')
+                new_image = st.file_uploader('Új fotó (nem kötelező; a régi megmarad)',
+                                             type=['jpg', 'jpeg', 'png'],
+                                             key=f'shelter_edit_image_{dog_id}')
+                submitted = st.form_submit_button('💾 Módosítások mentése')
+            if submitted:
+                if not name.strip():
+                    st.error('Add meg a kutya nevét!')
+                else:
+                    try:
+                        new_image_data = process_image(new_image)
+                        updated = update_shelter_dog(account_id, dog_id, name.strip(), size,
+                                                     energy, garden, kids, exp, new_image_data)
+                        if updated:
+                            st.success('A kutya adatai frissültek.')
+                            st.rerun()
+                        else:
+                            st.error('A kutya nem található a saját fiókodban, vagy nincs jogosultságod.')
+                    except Exception as exc:
+                        st.error(f'A módosítás nem sikerült: {exc}')
+
+            confirm = st.checkbox('Biztosan törölni szeretném ezt a kutyát',
+                                  key=f'shelter_confirm_delete_{dog_id}')
+            if st.button('🗑️ Saját kutya törlése', key=f'shelter_delete_{dog_id}',
+                         disabled=not confirm):
+                try:
+                    if delete_shelter_dog(account_id, dog_id):
+                        st.success('A kutya törölve.')
+                        st.rerun()
+                    else:
+                        st.error('A kutya nem törölhető ebből a menhelyi fiókból.')
+                except Exception as exc:
+                    st.error(f'A törlés nem sikerült: {exc}')
 
 
 def render_shelter_approvals():
@@ -1224,8 +1431,9 @@ def main():
 
     try:
         init_shelter_accounts()
+        init_shelter_dog_ownership()
     except Exception:
-        st.error("A menhelyi fiókok adatbázisa nem érhető el.")
+        st.error("A menhelyi fiókok és a kutyák adatbázisa nem érhető el.")
         return
 
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
