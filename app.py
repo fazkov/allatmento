@@ -8,6 +8,8 @@ import os
 import re
 from contextlib import contextmanager
 
+from datetime import datetime, timezone
+
 
 # =====================================================
 # 1. OLDALBEÁLLÍTÁSOK
@@ -1390,6 +1392,68 @@ def render_shelter_approvals():
                         st.error('A döntés mentése nem sikerült.')
 
 
+
+
+def render_shelter_plus_admin():
+    st.subheader("⭐ Menhely Plusz kezelése")
+
+    if not st.session_state.get("admin_logged_in", False):
+        st.warning("Ehhez tulajdonosi bejelentkezés szükséges.")
+        return
+
+    try:
+        with database_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT id, shelter_name, plan, plus_expires_at
+                    FROM shelter_accounts
+                    WHERE status = 'approved'
+                    ORDER BY shelter_name
+                """)
+                shelters = cursor.fetchall()
+    except Exception:
+        st.error("A menhelyek lekérdezése nem sikerült.")
+        return
+
+    if not shelters:
+        st.info("Jelenleg nincs jóváhagyott menhely.")
+        return
+
+    for account_id, name, plan, expires_at in shelters:
+        with st.container(border=True):
+            st.write(f"**{name}**")
+
+            active = (
+                plan == "plus"
+                and expires_at is not None
+                and expires_at > datetime.now(timezone.utc)
+            )
+
+            if active:
+                st.success(f"Plusz aktív eddig: {expires_at:%Y-%m-%d}")
+            else:
+                st.info("Ingyenes csomag")
+
+            if st.button(
+                "⭐ 30 napos Plusz aktiválása",
+                key=f"activate_plus_{account_id}"
+            ):
+                try:
+                    with database_connection() as conn:
+                        with conn.cursor() as cursor:
+                            cursor.execute("""
+                                UPDATE shelter_accounts
+                                SET plan = 'plus',
+                                    plus_expires_at =
+                                        NOW() + INTERVAL '30 days'
+                                WHERE id = %s
+                                  AND status = 'approved'
+                            """, (account_id,))
+                    st.success("A 30 napos Plusz aktiválva!")
+                    st.rerun()
+                except Exception:
+                    st.error("Az aktiválás nem sikerült.")
+
 # =====================================================
 # 16. FŐPROGRAM
 # =====================================================
@@ -1478,6 +1542,9 @@ def main():
 
     with tab6:
         render_shelter_approvals()
+        
+        render_shelter_plus_admin()
+
 
 
 # =====================================================
