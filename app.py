@@ -739,14 +739,15 @@ def render_demo_tab():
 def render_admin_login():
 
     password = st.secrets.get(
-        "MENHELY_JELSZO",
+        "OWNER_ADMIN_PASSWORD",
         ""
     )
 
     if not password:
 
+        st.session_state.admin_logged_in = False
         st.error(
-            "Nincs beállítva a menhelyi jelszó!"
+            "Nincs beállítva az OWNER_ADMIN_PASSWORD titok!"
         )
 
         return False
@@ -754,7 +755,7 @@ def render_admin_login():
     with st.form("admin_login_form"):
 
         password_input = st.text_input(
-            "Menhelyi jelszó",
+            "Tulajdonosi adminjelszó",
             type="password"
         )
 
@@ -764,12 +765,13 @@ def render_admin_login():
 
     if submitted:
 
-        if hmac.compare_digest(
+        if password_input and hmac.compare_digest(
             password_input,
             password
         ):
 
             st.session_state.admin_logged_in = True
+            st.session_state.owner_auth_fingerprint = hashlib.sha256(password.encode("utf-8")).hexdigest()
             st.rerun()
 
         else:
@@ -789,7 +791,7 @@ def render_admin_login():
 def render_admin_tab():
 
     st.header(
-        "🔐 Menhelyi nyilvántartás"
+        "🔐 Tulajdonosi admin"
     )
 
     if not st.session_state.get(
@@ -813,6 +815,7 @@ def render_admin_tab():
         if st.button("Kilépés"):
 
             st.session_state.admin_logged_in = False
+            st.session_state.pop("owner_auth_fingerprint", None)
             st.rerun()
 
     st.subheader(
@@ -1248,7 +1251,7 @@ def render_shelter_dog_management(account):
     account_id, shelter_name, contact = account
     st.subheader('🐾 Saját kutyáim')
     st.caption('Csak az ehhez a menhelyi fiókhoz tartozó kutyák jelennek meg itt. '
-               'A korábban feltöltött tesztkutyák változatlanok maradnak.')
+               'A korábban feltöltött, fiókhoz nem rendelt kutyák változatlanok maradnak.')
 
     with st.expander('➕ Új kutya feltöltése', expanded=True):
         with st.form('shelter_new_dog_form', clear_on_submit=True):
@@ -1275,12 +1278,12 @@ def render_shelter_dog_management(account):
                     else:
                         st.error('A menhelyi fiók nem jogosult a feltöltésre.')
                 except Exception as exc:
-                    st.error(f'A mentés nem sikerült: {exc}')
+                    st.error('A mentés nem sikerült. Kérjük, próbáld újra később.')
 
     try:
         dogs = get_shelter_dogs(account_id)
     except Exception as exc:
-        st.error(f'A saját kutyák lekérése nem sikerült: {exc}')
+        st.error('A saját kutyák lekérése nem sikerült.')
         return
     if not dogs:
         st.info('Még nem töltöttél fel kutyát ezzel a menhelyi fiókkal.')
@@ -1326,7 +1329,7 @@ def render_shelter_dog_management(account):
                         else:
                             st.error('A kutya nem található a saját fiókodban, vagy nincs jogosultságod.')
                     except Exception as exc:
-                        st.error(f'A módosítás nem sikerült: {exc}')
+                        st.error('A módosítás nem sikerült.')
 
             confirm = st.checkbox('Biztosan törölni szeretném ezt a kutyát',
                                   key=f'shelter_confirm_delete_{dog_id}')
@@ -1339,14 +1342,14 @@ def render_shelter_dog_management(account):
                     else:
                         st.error('A kutya nem törölhető ebből a menhelyi fiókból.')
                 except Exception as exc:
-                    st.error(f'A törlés nem sikerült: {exc}')
+                    st.error('A törlés nem sikerült.')
 
 
 def render_shelter_approvals():
     st.header('🛡️ Menhelyek jóváhagyása')
-    # Központi admin jelszó: a meglévő MENHELY_JELSZO titok.
+    # Jóváhagyást kizárólag a tulajdonosi admin végezhet.
     if not st.session_state.get('admin_logged_in', False):
-        st.info('A jóváhagyáshoz először jelentkezz be a Menhelyi admin fülön.')
+        st.info('A jóváhagyáshoz először jelentkezz be a Tulajdonosi admin fülön.')
         return
     try:
         with database_connection() as conn:
@@ -1371,6 +1374,9 @@ def render_shelter_approvals():
             st.caption(f'Jelentkezés: {created:%Y-%m-%d %H:%M}')
             decision = st.radio('Döntés', ['Még nem döntöttem', 'Jóváhagyás', 'Elutasítás'], key=f'decision_{account_id}')
             if st.button('Döntés mentése', key=f'save_decision_{account_id}'):
+                if not st.session_state.get('admin_logged_in', False):
+                    st.error('Nincs tulajdonosi jogosultság.')
+                    return
                 status = {'Jóváhagyás': 'approved', 'Elutasítás': 'rejected'}.get(decision)
                 if not status:
                     st.warning('Válassz jóváhagyást vagy elutasítást.')
@@ -1394,6 +1400,13 @@ def main():
         st.session_state.demo_dogs = []
 
     if "admin_logged_in" not in st.session_state:
+        st.session_state.admin_logged_in = False
+
+    owner_secret = st.secrets.get("OWNER_ADMIN_PASSWORD", "")
+    owner_fingerprint = hashlib.sha256(owner_secret.encode("utf-8")).hexdigest() if owner_secret else None
+    if st.session_state.get("admin_logged_in") and (
+        not owner_fingerprint or st.session_state.get("owner_auth_fingerprint") != owner_fingerprint
+    ):
         st.session_state.admin_logged_in = False
 
     if "confirm_delete" not in st.session_state:
@@ -1439,7 +1452,7 @@ def main():
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "🔍 Kutyakereső",
         "🧪 Demó mód",
-        "🔐 Menhelyi admin",
+        "🔐 Tulajdonosi admin",
         "📝 Menhelyi regisztráció",
         "🔑 Menhelyi belépés",
         "🛡️ Jóváhagyások"
