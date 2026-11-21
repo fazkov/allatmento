@@ -1386,7 +1386,23 @@ def render_shelter_approvals():
                     try:
                         with database_connection() as conn:
                             with conn.cursor() as cursor:
-                                cursor.execute("UPDATE shelter_accounts SET status = %s WHERE id = %s AND status = 'pending'", (status, account_id))
+                            
+                                cursor.execute("""
+                        UPDATE shelter_accounts
+                        SET status = %s,
+                            plan = CASE
+                                WHEN %s = 'approved' AND plus_expires_at IS NULL
+                                THEN 'plus'
+                                ELSE plan
+                            END,
+                            plus_expires_at = CASE
+                                WHEN %s = 'approved' AND plus_expires_at IS NULL
+                                THEN NOW() + INTERVAL '30 days'
+                                ELSE plus_expires_at
+                            END
+                        WHERE id = %s AND status = 'pending'
+                    """, (status, status, status, account_id))
+
                         st.rerun()
                     except Exception:
                         st.error('A döntés mentése nem sikerült.')
