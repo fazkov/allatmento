@@ -1421,7 +1421,7 @@ def render_shelter_plus_admin():
         with database_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute("""
-                    SELECT id, shelter_name, plan, plus_expires_at
+                    SELECT id, shelter_name, email, plan, plus_expires_at
                     FROM shelter_accounts
                     WHERE status = 'approved'
                     ORDER BY shelter_name
@@ -1435,10 +1435,10 @@ def render_shelter_plus_admin():
         st.info("Jelenleg nincs jóváhagyott menhely.")
         return
 
-    for account_id, name, plan, expires_at in shelters:
+    for account_id, name, email, plan, expires_at in shelters:
         with st.container(border=True):
             st.write(f"**{name}**")
-
+            st.caption(f"📧 E-mail: {email}")
             active = (
                 plan == "plus"
                 and expires_at is not None
