@@ -1470,6 +1470,17 @@ def render_shelter_plus_admin():
                 except Exception:
                     st.error("Az aktiválás nem sikerült.")
 
+def expire_shelter_plus():
+    with database_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                UPDATE shelter_accounts
+                SET plan = 'free'
+                WHERE plan = 'plus'
+                  AND plus_expires_at IS NOT NULL
+                  AND plus_expires_at <= NOW()
+            """)
+
 # =====================================================
 # 16. FŐPROGRAM
 # =====================================================
@@ -1525,9 +1536,12 @@ def main():
     try:
         init_shelter_accounts()
         init_shelter_dog_ownership()
+        expire_shelter_plus()
     except Exception:
         st.error("A menhelyi fiókok és a kutyák adatbázisa nem érhető el.")
         return
+   
+    
 
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "🔍 Kutyakereső",
