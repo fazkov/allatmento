@@ -1196,7 +1196,34 @@ def verify_shelter_password(password, stored):
     except (ValueError, TypeError):
         return False
 
+def change_shelter_password(account_id, old_password, new_password):
+    with database_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT password_hash
+                FROM shelter_accounts
+                WHERE id = %s AND status = 'approved'
+                FOR UPDATE
+            """, (account_id,))
 
+            account = cursor.fetchone()
+
+            if not account:
+                return False
+
+            if not verify_shelter_password(old_password, account[0]):
+                return False
+
+            new_hash = hash_shelter_password(new_password)
+
+            cursor.execute("""
+                UPDATE shelter_accounts
+                SET password_hash = %s
+                WHERE id = %s AND status = 'approved'
+            """, (new_hash, account_id))
+
+            conn.commit()
+            return cursor.rowcount == 1
 def register_shelter(shelter, contact, email, phone, password):
     with database_connection() as conn:
         with conn.cursor() as cursor:
@@ -1256,7 +1283,36 @@ def render_shelter_login():
             st.session_state.shelter_account_id = None
             st.rerun()
         with st.expander("🔑 Jelszó módosítása"):
-            st.info("Itt hamarosan módosíthatod a menhelyi fiókod jelszavát.")
+            with st.form("change_shelter_password_form"):
+                old_password = st.text_input(
+                    "Jelenlegi jelszó", type="password"
+                )
+                new_password = st.text_input(
+                    "Új jelszó (legalább 12 karakter)", type="password"
+                )
+                confirm_password = st.text_input(
+                    "Új jelszó megerősítése", type="password"
+                )
+                change_submit = st.form_submit_button("🔑 Jelszó módosítása")
+
+                if change_submit:
+                    if len(new_password) < 12:
+                        st.error("Az új jelszónak legalább 12 karakteresnek kell lennie.")
+                    elif new_password != confirm_password:
+                        st.error("Az új jelszavak nem egyeznek.")
+                    elif not old_password:
+                        st.error("Add meg a jelenlegi jelszavadat.")
+                    else:
+                        try:
+                            changed = change_shelter_password(
+                                account_id, old_password, new_password
+                            )
+                            if changed:
+                                st.success("A jelszó sikeresen megváltozott!")
+                            else:
+                                st.error("A jelenlegi jelszó hibás.")
+                        except Exception:
+                            st.error("A jelszómódosítás jelenleg nem sikerült.")
 
         render_shelter_dog_management(account)
         return
