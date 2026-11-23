@@ -392,7 +392,8 @@ def find_matches(
 def render_dog_card(dog, score):
 
     with st.container(border=True):
-
+        if dog.get("is_plus", False):
+            st.success("⭐ Kiemelt kutyus – Menhely Plusz")
         col1, col2 = st.columns((1, 2))
 
         with col1:
