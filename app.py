@@ -1075,12 +1075,14 @@ def init_shelter_dog_ownership():
             """)
 
 
+
 def get_approved_shelter(account_id):
     if not isinstance(account_id, int) or isinstance(account_id, bool):
         return None
+
     with database_connection() as conn:
         with conn.cursor() as cursor:
-                        cursor.execute("""
+            cursor.execute("""
                 UPDATE shelter_accounts
                 SET plan = 'free',
                     plus_expires_at = NULL
@@ -1089,13 +1091,20 @@ def get_approved_shelter(account_id):
                   AND plus_expires_at IS NOT NULL
                   AND plus_expires_at <= NOW()
             """, (account_id,))
+
             conn.commit()
+
             cursor.execute("""
-                SELECT id, shelter_name, COALESCE(NULLIF(phone, ''), email), plan, plus_expires_at
+                SELECT id, shelter_name,
+                       COALESCE(NULLIF(phone, ''), email),
+                       plan, plus_expires_at
                 FROM shelter_accounts
-                WHERE id = %s AND status = 'approved'
+                WHERE id = %s
+                  AND status = 'approved'
             """, (account_id,))
+
             return cursor.fetchone()
+
 
 
 def get_shelter_dogs(account_id):
