@@ -1081,7 +1081,7 @@ def get_approved_shelter(account_id):
     with database_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT id, shelter_name, COALESCE(NULLIF(phone, ''), email)
+                SELECT id, shelter_name, COALESCE(NULLIF(phone, ''), email), plan, plus_expires_at
                 FROM shelter_accounts
                 WHERE id = %s AND status = 'approved'
             """, (account_id,))
