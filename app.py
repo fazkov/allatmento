@@ -232,19 +232,28 @@ def get_all_dogs():
         with conn.cursor() as cursor:
 
             cursor.execute("""
-                SELECT
-                    id,
-                    name,
-                    size,
-                    energy_level,
-                    needs_garden,
-                    kid_friendly,
-                    experience_required,
-                    shelter_name,
-                    shelter_contact,
-                    image_data
-                FROM dogs
-                ORDER BY id DESC
+               SELECT
+    d.id,
+    d.name,
+    d.size,
+    d.energy_level,
+    d.needs_garden,
+    d.kid_friendly,
+    d.experience_required,
+    d.shelter_name,
+    d.shelter_contact,
+    d.image_data,
+    CASE
+        WHEN s.status = 'approved'
+         AND s.plan = 'plus'
+         AND s.plus_expires_at > NOW()
+        THEN TRUE
+        ELSE FALSE
+    END AS is_plus
+FROM dogs AS d
+LEFT JOIN shelter_accounts AS s
+    ON d.shelter_account_id = s.id
+ORDER BY d.id DESC
             """)
 
             rows = cursor.fetchall()
@@ -265,9 +274,9 @@ def get_all_dogs():
                 "experience_required": bool(d[6]),
                 "shelter_name": d[7] or "Nincs megadva",
                 "shelter_contact": d[8] or "Nincs megadva",
-                "image_data": d[9]
+               "image_data": d[9],
+               "is_plus": bool(d[10])
             })
-
         return dogs
 # =====================================================
 # 8. PÁROSÍTÁSI RENDSZER
