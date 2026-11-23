@@ -1486,7 +1486,7 @@ def expire_shelter_plus():
 # =====================================================
 
 def main():
-
+    expire_shelter_plus()
     if "demo_dogs" not in st.session_state:
         st.session_state.demo_dogs = []
 
