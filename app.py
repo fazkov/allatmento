@@ -1258,9 +1258,25 @@ def render_shelter_login():
         except Exception:
             st.error('A bejelentkezés jelenleg nem érhető el.')
 
-
 def render_shelter_dog_management(account):
-    account_id, shelter_name, contact = account
+    account_id, shelter_name, contact, plan, plus_expires_at = account
+
+    from datetime import datetime, timezone
+
+    plus_active = (
+        plan == 'plus'
+        and plus_expires_at is not None
+        and plus_expires_at > datetime.now(timezone.utc)
+    )
+
+    if plus_active:
+        st.success("⭐ Aktív előfizetés: Menhely Plusz")
+        st.info(
+            f"📅 Előfizetés lejárata: "
+            f"{plus_expires_at.strftime('%Y.%m.%d.')}"
+        )
+    else:
+        st.info("🐾 Jelenlegi csomag: Ingyenes")
     st.subheader('🐾 Saját kutyáim')
     st.caption('Csak az ehhez a menhelyi fiókhoz tartozó kutyák jelennek meg itt. '
                'A korábban feltöltött, fiókhoz nem rendelt kutyák változatlanok maradnak.')
