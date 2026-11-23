@@ -1080,6 +1080,16 @@ def get_approved_shelter(account_id):
         return None
     with database_connection() as conn:
         with conn.cursor() as cursor:
+                        cursor.execute("""
+                UPDATE shelter_accounts
+                SET plan = 'free',
+                    plus_expires_at = NULL
+                WHERE id = %s
+                  AND plan = 'plus'
+                  AND plus_expires_at IS NOT NULL
+                  AND plus_expires_at <= NOW()
+            """, (account_id,))
+            conn.commit()
             cursor.execute("""
                 SELECT id, shelter_name, COALESCE(NULLIF(phone, ''), email), plan, plus_expires_at
                 FROM shelter_accounts
