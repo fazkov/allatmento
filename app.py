@@ -1255,6 +1255,9 @@ def render_shelter_login():
         if st.button('Menhelyi kijelentkezés'):
             st.session_state.shelter_account_id = None
             st.rerun()
+        with st.expander("🔑 Jelszó módosítása"):
+            st.info("Itt hamarosan módosíthatod a menhelyi fiókod jelszavát.")
+
         render_shelter_dog_management(account)
         return
     with st.form('shelter_login_form'):
