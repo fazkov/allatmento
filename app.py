@@ -1402,6 +1402,16 @@ def render_shelter_dog_management(account):
         )
     else:
         st.info("🐾 Jelenlegi csomag: Ingyenes")
+
+        with st.expander("⭐ Ismerd meg a Menhely Plusz csomagot!"):
+            st.markdown("### A Menhely Plusz előnyei")
+            st.markdown("""
+            - ⭐ 5 kutya kiemelése
+            - 🔝 Előresorolás a keresőben
+            - 📊 Bővített menhelyi statisztika
+            - 🎯 Szabad kiemelések számlálója
+            """)
+            st.info("Segíts, hogy kutyáid hamarabb gazdira találjanak!")
     st.subheader("📊 Menhelyi statisztika")
 
     try:
