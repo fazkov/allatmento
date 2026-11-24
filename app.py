@@ -1176,7 +1176,45 @@ def delete_shelter_dog(account_id, dog_id):
             """, (dog_id, account_id, account_id))
             return cursor.rowcount == 1
 
+def set_shelter_dog_featured(account_id, dog_id, featured):
+    with database_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT status, plan,
+                       plus_expires_at > NOW()
+                FROM shelter_accounts
+                WHERE id = %s
+                FOR UPDATE
+            """, (account_id,))
 
+            account = cursor.fetchone()
+
+            if not account or account[0] != 'approved':
+                return False
+
+            if featured:
+                if account[1] != 'plus' or not account[2]:
+                    return False
+
+                cursor.execute("""
+                    SELECT COUNT(*)
+                    FROM dogs
+                    WHERE shelter_account_id = %s
+                    AND is_featured = TRUE
+                    AND id <> %s
+                """, (account_id, dog_id))
+
+                if cursor.fetchone()[0] >= 5:
+                    return False
+
+            cursor.execute("""
+                UPDATE dogs
+                SET is_featured = %s
+                WHERE id = %s
+                AND shelter_account_id = %s
+            """, (featured, dog_id, account_id))
+
+            return cursor.rowcount == 1
 def hash_shelter_password(password):
     salt = os.urandom(16)
     iterations = 600000
@@ -1436,7 +1474,58 @@ def render_shelter_dog_management(account):
                             st.error('A kutya nem található a saját fiókodban, vagy nincs jogosultságod.')
                     except Exception as exc:
                         st.error('A módosítás nem sikerült.')
+            st.markdown("**⭐ Kiemelt gazdikereső**")
 
+            if not plus_active:
+                st.button(
+                    "🔒 Kutya kiemelése",
+                    key=f"featured_locked_{dog_id}",
+                    disabled=True
+                )
+                st.caption(
+                    "Ez a funkció a Menhely Plusz csomagban érhető el."
+                )
+            else:
+                try:
+                    with database_connection() as conn:
+                        with conn.cursor() as cursor:
+                            cursor.execute("""
+                                SELECT is_featured
+                                FROM dogs
+                                WHERE id = %s
+                                AND shelter_account_id = %s
+                            """, (dog_id, account_id))
+                            result = cursor.fetchone()
+
+                    if result is not None:
+                        featured = bool(result[0])
+
+                        if featured:
+                            st.success("⭐ Kiemelt kutya")
+
+                        label = (
+                            "Kiemelés megszüntetése"
+                            if featured
+                            else "⭐ Kutya kiemelése"
+                        )
+
+                        if st.button(
+                            label,
+                            key=f"featured_toggle_{dog_id}"
+                        ):
+                            if set_shelter_dog_featured(
+                                account_id, dog_id, not featured
+                            ):
+                                st.rerun()
+                            else:
+                                st.warning(
+                                    "A kiemelés nem módosítható. "
+                                    "Maximum 5 kiemelt kutya engedélyezett, "
+                                    "aktív Plusz előfizetéssel."
+                                )
+
+                except Exception:
+                    st.error("A kiemelés kezelése nem sikerült.")
             confirm = st.checkbox('Biztosan törölni szeretném ezt a kutyát',
                                   key=f'shelter_confirm_delete_{dog_id}')
             if st.button('🗑️ Saját kutya törlése', key=f'shelter_delete_{dog_id}',
