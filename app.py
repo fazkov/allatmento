@@ -1412,6 +1412,37 @@ def render_shelter_dog_management(account):
             - 🎯 Szabad kiemelések számlálója
             """)
             st.info("Segíts, hogy kutyáid hamarabb gazdira találjanak!")
+
+            try:
+                with database_connection() as conn:
+                    with conn.cursor() as cursor:
+                        cursor.execute("""
+                            SELECT plus_requested
+                            FROM public.shelter_accounts
+                            WHERE id = %s
+                        """, (account_id,))
+                        request_row = cursor.fetchone()
+
+                if request_row is None:
+                    st.warning("A menhelyi fiók nem található.")
+                elif request_row[0]:
+                    st.success("✅ Plusz igénylésed jóváhagyásra vár!")
+                elif st.button("⭐ Menhely Plusz igénylése", key="request_plus"):
+                    with database_connection() as conn:
+                        with conn.cursor() as cursor:
+                            cursor.execute("""
+                                UPDATE public.shelter_accounts
+                                SET plus_requested = TRUE,
+                                    plus_requested_at = NOW()
+                                WHERE id = %s
+                                  AND plus_requested = FALSE
+                                  AND status = 'approved'
+                            """, (account_id,))
+                        conn.commit()
+                    st.rerun()
+
+            except Exception:
+                st.error("Az igénylés jelenleg nem érhető el.")
     st.subheader("📊 Menhelyi statisztika")
 
     try:
