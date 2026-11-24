@@ -1692,7 +1692,8 @@ def render_shelter_plus_admin():
         with database_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute("""
-                    SELECT id, shelter_name, email, plan, plus_expires_at
+                    SELECT id, shelter_name, email, plan, plus_expires_at,
+       plus_requested, plus_requested_at
                     FROM shelter_accounts
                     WHERE status = 'approved'
                     ORDER BY shelter_name
@@ -1706,7 +1707,7 @@ def render_shelter_plus_admin():
         st.info("Jelenleg nincs jóváhagyott menhely.")
         return
 
-    for account_id, name, email, plan, expires_at in shelters:
+    for account_id, name, email, plan, expires_at, plus_requested, plus_requested_at in shelters:
         with st.container(border=True):
             st.write(f"**{name}**")
             st.caption(f"📧 E-mail: {email}")
@@ -1720,7 +1721,12 @@ def render_shelter_plus_admin():
                 st.success(f"Plusz aktív eddig: {expires_at:%Y-%m-%d}")
             else:
                 st.info("Ingyenes csomag")
-
+            if plus_requested:
+                st.warning("⏳ Plusz igénylés jóváhagyásra vár!")
+                if plus_requested_at:
+                    st.caption(
+                        f"Igénylés dátuma: {plus_requested_at:%Y.%m.%d.}"
+                    )
             if st.button(
                 "⭐ 30 napos Plusz aktiválása",
                 key=f"activate_plus_{account_id}"
@@ -1731,8 +1737,10 @@ def render_shelter_plus_admin():
                             cursor.execute("""
                                 UPDATE shelter_accounts
                                 SET plan = 'plus',
-                                    plus_expires_at =
-                                        NOW() + INTERVAL '30 days'
+    plus_expires_at =
+        NOW() + INTERVAL '30 days',
+    plus_requested = FALSE,
+    plus_requested_at = NULL
                                 WHERE id = %s
                                   AND status = 'approved'
                             """, (account_id,))
@@ -1740,7 +1748,26 @@ def render_shelter_plus_admin():
                     st.rerun()
                 except Exception:
                     st.error("Az aktiválás nem sikerült.")
-
+            if plus_requested:
+                if st.button(
+                    "❌ Plusz igénylés elutasítása",
+                    key=f"reject_plus_{account_id}"
+                ):
+                    try:
+                        with database_connection() as conn:
+                            with conn.cursor() as cursor:
+                                cursor.execute("""
+                                    UPDATE shelter_accounts
+                                    SET plus_requested = FALSE,
+                                        plus_requested_at = NULL
+                                    WHERE id = %s
+                                    AND status = 'approved'
+                                    AND plus_requested = TRUE
+                                """, (account_id,))
+                            conn.commit()
+                        st.rerun()
+                    except Exception:
+                        st.error("Az elutasítás nem sikerült.")
 def expire_shelter_plus():
     with database_connection() as conn:
         with conn.cursor() as cursor:
