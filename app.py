@@ -1417,10 +1417,11 @@ def render_shelter_dog_management(account):
                 total_dogs, featured_dogs = cursor.fetchone()
 
         if plus_active:
-            stat1, stat2 = st.columns(2)
+            stat1, stat2, stat3 = st.columns(3)
 
             stat1.metric("🐕 Feltöltött kutyák", total_dogs)
             stat2.metric("⭐ Kiemelt kutyák", f"{featured_dogs} / 5")
+            stat3.metric("🎯 Szabad kiemelések", max(0, 5 - featured_dogs))
         else:
             st.metric("🐕 Feltöltött kutyák", total_dogs)
             st.caption("További statisztikák a Menhely Plusz csomagban.")
