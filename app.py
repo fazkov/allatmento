@@ -249,7 +249,8 @@ def get_all_dogs():
          AND s.plus_expires_at > NOW()
         THEN TRUE
         ELSE FALSE
-    END AS is_plus
+    END AS is_plus,
+d.is_featured
 FROM dogs AS d
 LEFT JOIN shelter_accounts AS s
     ON d.shelter_account_id = s.id
@@ -275,7 +276,8 @@ ORDER BY d.id DESC
                 "shelter_name": d[7] or "Nincs megadva",
                 "shelter_contact": d[8] or "Nincs megadva",
                "image_data": d[9],
-               "is_plus": bool(d[10])
+               "is_plus": bool(d[10]),
+               "is_featured": bool(d[11]) and bool(d[10])
             })
         return dogs
 # =====================================================
