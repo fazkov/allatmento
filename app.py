@@ -1402,6 +1402,33 @@ def render_shelter_dog_management(account):
         )
     else:
         st.info("🐾 Jelenlegi csomag: Ingyenes")
+    st.subheader("📊 Menhelyi statisztika")
+
+    try:
+        with database_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT COUNT(*),
+                           COUNT(*) FILTER (WHERE is_featured = TRUE)
+                    FROM dogs
+                    WHERE shelter_account_id = %s
+                """, (account_id,))
+
+                total_dogs, featured_dogs = cursor.fetchone()
+
+        if plus_active:
+            stat1, stat2 = st.columns(2)
+
+            stat1.metric("🐕 Feltöltött kutyák", total_dogs)
+            stat2.metric("⭐ Kiemelt kutyák", f"{featured_dogs} / 5")
+        else:
+            st.metric("🐕 Feltöltött kutyák", total_dogs)
+            st.caption("További statisztikák a Menhely Plusz csomagban.")
+
+    except Exception:
+        st.warning("A statisztika jelenleg nem érhető el.")
+
+    st.divider()
     st.subheader('🐾 Saját kutyáim')
     st.caption('Csak az ehhez a menhelyi fiókhoz tartozó kutyák jelennek meg itt. '
                'A korábban feltöltött, fiókhoz nem rendelt kutyák változatlanok maradnak.')
