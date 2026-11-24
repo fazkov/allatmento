@@ -380,9 +380,14 @@ def find_matches(
             matches.append((score, dog))
 
     matches.sort(
-        key=lambda item: item[0],
+        key=lambda item: (
+            item[0],
+            item[1].get("is_featured", False),
+            item[1].get("is_plus", False)
+        ),
         reverse=True
     )
+ 
 
     return matches
 
