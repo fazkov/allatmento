@@ -6,6 +6,7 @@ import hmac
 import hashlib
 import os
 import re
+import stripe
 from contextlib import contextmanager
 
 from datetime import datetime, timezone
@@ -23,7 +24,9 @@ st.set_page_config(
 
 MAX_IMAGE_SIZE = 5 * 1024 * 1024
 
-
+# STRIPE FIZETÉSI BEÁLLÍTÁSOK
+stripe.api_key = st.secrets.get("STRIPE_SECRET_KEY")
+STRIPE_PRICE_ID = st.secrets.get("STRIPE_PRICE_ID")
 # =====================================================
 # 2. ADATBÁZIS KAPCSOLAT
 # =====================================================
@@ -1425,21 +1428,28 @@ def render_shelter_dog_management(account):
 
                 if request_row is None:
                     st.warning("A menhelyi fiók nem található.")
-                elif request_row[0]:
-                    st.success("✅ Plusz igénylésed jóváhagyásra vár!")
-                elif st.button("⭐ Menhely Plusz igénylése", key="request_plus"):
-                    with database_connection() as conn:
-                        with conn.cursor() as cursor:
-                            cursor.execute("""
-                                UPDATE public.shelter_accounts
-                                SET plus_requested = TRUE,
-                                    plus_requested_at = NOW()
-                                WHERE id = %s
-                                  AND plus_requested = FALSE
-                                  AND status = 'approved'
-                            """, (account_id,))
-                        conn.commit()
-                    st.rerun()
+                elif st.button("⭐ Előfizetés a Menhely Plusz csomagra", key="request_plus"):
+                    checkout_session = stripe.checkout.Session.create(
+                        mode="subscription",
+                        line_items=[
+                            {
+                                "price": STRIPE_PRICE_ID,
+                                "quantity": 1,
+                            }
+                        ],
+                        client_reference_id=str(account_id),
+                        metadata={"account_id": str(account_id)},
+                        subscription_data={
+                            "metadata": {"account_id": str(account_id)}
+                        },
+                        success_url="https://allatmento-teszt.streamlit.app/?payment=success",
+                        cancel_url="https://allatmento-teszt.streamlit.app/?payment=cancel"
+                    )
+
+                    st.link_button(
+                        "💳 Tovább a biztonságos fizetéshez",
+                        checkout_session.url
+                    )
 
             except Exception:
                 st.error("Az igénylés jelenleg nem érhető el.")
