@@ -1393,8 +1393,8 @@ def verify_stripe_payment(account_id):
 
         return session
 
-    except Exception:
-        st.error("A fizetés ellenőrzése jelenleg nem sikerült.")
+    except Exception as e:
+        st.error(f"Fizetési hiba típusa: {type(e).__name__}")
         return None
 def render_shelter_login():
     st.header('🔑 Menhelyi belépés')
