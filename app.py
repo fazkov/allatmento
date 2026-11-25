@@ -1442,7 +1442,7 @@ def render_shelter_dog_management(account):
                         subscription_data={
                             "metadata": {"account_id": str(account_id)}
                         },
-                        success_url="https://allatmento-teszt.streamlit.app/?payment=success",
+                        success_url="https://allatmento-teszt.streamlit.app/?payment=success&session_id={CHECKOUT_SESSION_ID}",
                         cancel_url="https://allatmento-teszt.streamlit.app/?payment=cancel"
                     )
 
