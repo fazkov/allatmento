@@ -1069,7 +1069,12 @@ def init_shelter_accounts():
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             """)
-
+            cursor.execute("""
+                ALTER TABLE shelter_accounts
+                ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT,
+                ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT,
+                ADD COLUMN IF NOT EXISTS stripe_subscription_status TEXT
+            """)
 
 
 def init_shelter_dog_ownership():
