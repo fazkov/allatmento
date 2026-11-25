@@ -1342,7 +1342,28 @@ def verify_stripe_payment(account_id):
 
         if not session.subscription:
             return None
+        subscription = stripe.Subscription.retrieve(
+            session.subscription
+        )
 
+        if subscription.status != "active":
+            return None
+
+        if subscription.metadata.get("account_id") != str(account_id):
+            return None
+
+        items = subscription["items"]["data"]
+
+        if len(items) != 1:
+            return None
+
+        if items[0]["price"]["id"] != STRIPE_PRICE_ID:
+            return None
+
+        period_end = items[0]["current_period_end"]
+
+        if period_end <= datetime.now(timezone.utc).timestamp():
+            return None
         return session
 
     except Exception:
