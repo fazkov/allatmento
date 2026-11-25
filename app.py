@@ -1319,7 +1319,35 @@ def render_shelter_registration():
             except Exception:
                 st.error('A regisztráció most nem sikerült. Kérjük, próbáld újra később.')
 
+def verify_stripe_payment(account_id):
+    session_id = st.query_params.get("session_id")
 
+    if not session_id:
+        return None
+
+    try:
+        session = stripe.checkout.Session.retrieve(session_id)
+
+        if session.status != "complete":
+            return None
+
+        if session.payment_status != "paid":
+            return None
+
+        if session.mode != "subscription":
+            return None
+
+        if session.client_reference_id != str(account_id):
+            return None
+
+        if not session.subscription:
+            return None
+
+        return session
+
+    except Exception:
+        st.error("A fizetés ellenőrzése jelenleg nem sikerült.")
+        return None
 def render_shelter_login():
     st.header('🔑 Menhelyi belépés')
     account_id = st.session_state.get('shelter_account_id')
