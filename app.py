@@ -1361,6 +1361,13 @@ def render_shelter_login():
             st.session_state.shelter_account_id = None
             st.warning('A menhelyi fiók már nem aktív. Jelentkezz be újra.')
             return
+        if st.query_params.get("session_id"):
+            payment_session = verify_stripe_payment(account_id)
+
+            if payment_session is not None:
+                st.success("A Stripe fizetés ellenőrzése sikeres!")
+            else:
+                st.warning("A fizetés nem igazolható ehhez a fiókhoz.")
         st.success(f'Sikeres menhelyi bejelentkezés: {account[1]}')
         if st.button('Menhelyi kijelentkezés'):
             st.session_state.shelter_account_id = None
