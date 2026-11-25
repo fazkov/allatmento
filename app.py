@@ -1349,7 +1349,7 @@ def verify_stripe_payment(account_id):
         if subscription.status != "active":
             return None
 
-        if dict(subscription.metadata or {}).get("account_id") != str(account_id):
+        if subscription.to_dict().get("metadata", {}).get("account_id") != str(account_id):
             return None
 
         items = subscription["items"]["data"]
