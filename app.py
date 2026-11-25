@@ -1364,6 +1364,33 @@ def verify_stripe_payment(account_id):
 
         if period_end <= datetime.now(timezone.utc).timestamp():
             return None
+        with database_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE shelter_accounts
+                    SET plan = 'plus',
+                        plus_expires_at = to_timestamp(%s),
+                        stripe_customer_id = %s,
+                        stripe_subscription_id = %s,
+                        stripe_subscription_status = %s
+                    WHERE id = %s
+                    AND status = 'approved'
+                    AND (
+                        stripe_subscription_id IS NULL
+                        OR stripe_subscription_id = %s
+                    )
+                """, (
+                    period_end,
+                    session.customer,
+                    subscription.id,
+                    subscription.status,
+                    account_id,
+                    subscription.id
+                ))
+                if cursor.rowcount != 1:
+                    return None
+            conn.commit()
+
         return session
 
     except Exception:
