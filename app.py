@@ -1394,7 +1394,7 @@ def verify_stripe_payment(account_id):
         return session
 
     except Exception as e:
-        st.error(f"Fizetési hiba típusa: {type(e).__name__}")
+        st.error(f"Fizetési hiba: {type(e).__name__}, sor: {e.__traceback__.tb_lineno}")
         return None
 def render_shelter_login():
     st.header('🔑 Menhelyi belépés')
